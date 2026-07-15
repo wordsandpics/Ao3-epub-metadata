@@ -50,7 +50,7 @@ class PreviewDialog(QDialog):
 
     def __init__(self, gui, results):
         QDialog.__init__(self, gui)
-        self.setWindowTitle('Calibre Metadata Recovery -- Preview')
+        self.setWindowTitle('Extract Epub Metadata -- Preview')
         self.resize(760, 480)
         self.results = results
 

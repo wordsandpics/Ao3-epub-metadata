@@ -1,6 +1,6 @@
-# Calibre Metadata Recovery
+# Extract Epub Metadata
 
-A Calibre plugin that recovers [FanFicFare](https://github.com/JimmXinu/FanFicFare)-compatible
+A Calibre plugin that extracts [FanFicFare](https://github.com/JimmXinu/FanFicFare)-compatible
 metadata from an EPUB already in your library, for situations where FanFicFare itself can't
 (re-)download the story — Cloudflare, deleted works, manual/browser downloads, archived copies.
 
@@ -47,7 +47,7 @@ Preferences → Plugins → Load plugin from file, pointing at a zipped copy of 
 
 ## Configuring
 
-In Preferences → Plugins → Calibre Metadata Recovery → Customize plugin:
+In Preferences → Plugins → Extract Epub Metadata → Customize plugin:
 
 - **Saved Metadata Column** — a Long Text ("comments") custom column. Point this at the same
   column FanFicFare's own "Saved Metadata Column" setting uses.
@@ -58,8 +58,8 @@ In Preferences → Plugins → Calibre Metadata Recovery → Customize plugin:
 
 ## Usage
 
-Select one or more books with an EPUB format, click the plugin's toolbar button, review the
-preview, and confirm. Then run FanFicFare's own "Update Calibre Metadata from Saved Metadata
+Select one or more books with an EPUB format, click the "Extract Metadata" toolbar button, review
+the preview, and confirm. Then run FanFicFare's own "Update Calibre Metadata from Saved Metadata
 Column" action as usual.
 
 ## Development

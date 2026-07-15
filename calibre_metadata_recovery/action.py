@@ -12,10 +12,10 @@ from calibre_plugins.calibre_metadata_recovery.serialize import serialize_saved_
 
 
 class CalibreMetadataRecoveryAction(InterfaceAction):
-    name = 'Calibre Metadata Recovery'
+    name = 'Extract Epub Metadata'
     action_spec = (
-        'Recover FFF Metadata', None,
-        'Recover FanFicFare-compatible metadata from the selected EPUB(s) '
+        'Extract Metadata', None,
+        'Extract FanFicFare-compatible metadata from the selected EPUB(s) '
         'into the configured Saved Metadata column',
         (),
     )
@@ -62,7 +62,7 @@ class CalibreMetadataRecoveryAction(InterfaceAction):
         written = self._write_results(db, dest_column, selected)
 
         info_dialog(
-            self.gui, 'Calibre Metadata Recovery',
+            self.gui, 'Extract Epub Metadata',
             'Updated %d of %d selected book(s).' % (written, len(book_ids)),
             show=True)
 

@@ -10,9 +10,9 @@ class CalibreMetadataRecoveryBase(InterfaceActionBase):
     doesn't need to import Qt.
     """
 
-    name = 'Calibre Metadata Recovery'
+    name = 'Extract Epub Metadata'
     description = (
-        'Recovers FanFicFare-compatible metadata from an EPUB already in '
+        'Extracts FanFicFare-compatible metadata from an EPUB already in '
         'Calibre and writes it into a configured Saved Metadata column, so '
         "FanFicFare's own \"Update Calibre Metadata from Saved Metadata "
         'Column\" action can take over.'
