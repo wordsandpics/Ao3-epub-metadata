@@ -15,11 +15,8 @@ DEFAULT_STORE_VALUES = {
 }
 
 # Always prefix with 'plugins/' so this doesn't collide with a core calibre
-# config file. Kept as the plugin's original internal name (predates the
-# "Extract Epub Metadata" display name) -- it's just a storage path users
-# never see, and changing it would silently reset everyone's saved column
-# selection on upgrade for no user-visible benefit.
-plugin_prefs = JSONConfig('plugins/Calibre Metadata Recovery')
+# config file.
+plugin_prefs = JSONConfig('plugins/Extract Epub Metadata')
 plugin_prefs.defaults[STORE_NAME] = DEFAULT_STORE_VALUES
 
 

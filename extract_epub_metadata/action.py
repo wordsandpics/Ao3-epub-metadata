@@ -1,17 +1,17 @@
 from calibre.gui2 import error_dialog, info_dialog
 from calibre.gui2.actions import InterfaceAction
 
-from calibre_plugins.calibre_metadata_recovery.common_utils import plugin_icon
-from calibre_plugins.calibre_metadata_recovery.config import (
+from calibre_plugins.extract_epub_metadata.common_utils import plugin_icon
+from calibre_plugins.extract_epub_metadata.config import (
     KEY_ADD_IDENTIFIER, KEY_DEST_COLUMN, KEY_OVERWRITE, KEY_PREVIEW,
     STORE_NAME, plugin_prefs,
 )
-from calibre_plugins.calibre_metadata_recovery.dialogs import BookResult, PreviewDialog
-from calibre_plugins.calibre_metadata_recovery.mapping import extract_fields
-from calibre_plugins.calibre_metadata_recovery.serialize import serialize_saved_metadata
+from calibre_plugins.extract_epub_metadata.dialogs import BookResult, PreviewDialog
+from calibre_plugins.extract_epub_metadata.mapping import extract_fields
+from calibre_plugins.extract_epub_metadata.serialize import serialize_saved_metadata
 
 
-class CalibreMetadataRecoveryAction(InterfaceAction):
+class ExtractEpubMetadataAction(InterfaceAction):
     name = 'Extract Epub Metadata'
     action_spec = (
         'Extract Metadata', None,

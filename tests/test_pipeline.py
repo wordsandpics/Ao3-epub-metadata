@@ -8,8 +8,8 @@ the real fixtures in tests/fixtures/:
 
 Run with: python3 -m unittest discover -s tests -v
 (no third-party dependencies required; a minimal calibre stub package in
-tests/calibre_stub/ lets calibre_metadata_recovery/__init__.py import
-outside a real Calibre installation.)
+tests/calibre_stub/ lets extract_epub_metadata/__init__.py import outside
+a real Calibre installation.)
 """
 import datetime
 import sys
@@ -22,8 +22,8 @@ REPO_ROOT = TESTS_DIR.parent
 sys.path.insert(0, str(TESTS_DIR / 'calibre_stub'))
 sys.path.insert(0, str(REPO_ROOT))
 
-from calibre_metadata_recovery.mapping import extract_fields  # noqa: E402
-from calibre_metadata_recovery.serialize import serialize_saved_metadata  # noqa: E402
+from extract_epub_metadata.mapping import extract_fields  # noqa: E402
+from extract_epub_metadata.serialize import serialize_saved_metadata  # noqa: E402
 
 EPUB_FIXTURE = TESTS_DIR / 'fixtures' / 'johnlock_a_random_day.epub'
 GOLDEN_HTML_FIXTURE = TESTS_DIR / 'fixtures' / 'johnlock_saved_metadata_column.html'
