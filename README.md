@@ -1,5 +1,9 @@
 # Extract Epub Metadata
 
+> **Disclaimer:** this was shamelessly vibe-coded. It's provided as-is, and support is minimal —
+> issues and PRs are welcome, but don't expect a fast turnaround. Back up your library (or at
+> least test on a couple of books first) before relying on it.
+
 A Calibre plugin that extracts [FanFicFare](https://github.com/JimmXinu/FanFicFare)-compatible
 metadata from an EPUB already in your library, for situations where FanFicFare itself can't
 (re-)download the story — Cloudflare, deleted works, manual/browser downloads, archived copies.

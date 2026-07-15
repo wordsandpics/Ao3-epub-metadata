@@ -12,10 +12,10 @@ class CalibreMetadataRecoveryBase(InterfaceActionBase):
 
     name = 'Extract Epub Metadata'
     description = (
-        'Extracts FanFicFare-compatible metadata from an EPUB already in '
-        'Calibre and writes it into a configured Saved Metadata column, so '
-        "FanFicFare's own \"Update Calibre Metadata from Saved Metadata "
-        'Column\" action can take over.'
+        'Extracts FanFicFare-compatible metadata from an EPUB in your '
+        'Calibre library and writes it to the configured Saved Metadata '
+        "column, ready for FanFicFare’s Update Calibre Metadata from "
+        'Saved Metadata Column action.'
     )
     supported_platforms = ['windows', 'osx', 'linux']
     author = 'wordsandpics'
