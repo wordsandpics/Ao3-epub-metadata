@@ -152,6 +152,36 @@ class PipelineTest(unittest.TestCase):
         self.assertEqual(story.metadata.get('status'), 'Completed')
 
 
+class DateFieldTypingTest(unittest.TestCase):
+    """Regression test: an older fic whose FFF title page renders
+    dateCreated ("Packaged") in FFF's space-separated default format
+    (%Y-%m-%d %H:%M:%S) rather than the ISO T-separated form. This used to
+    leave dateCreated as a raw string, which serialize.py would then emit
+    without the 'datetime' class -- load_html_metadata() loads it back as
+    plain text, and FanFicFare's own code crashes calling .strftime() on
+    it during "Update Calibre Metadata from Saved Metadata Column"
+    (observed directly: 'str' object has no attribute 'strftime', see
+    tests/fixtures/like_fire_and_water_fff_error_log.txt)."""
+
+    EPUB_FIXTURE = TESTS_DIR / 'fixtures' / 'like_fire_and_water.epub'
+
+    def test_all_date_fields_are_real_datetimes(self):
+        fields, sources = extract_fields(str(self.EPUB_FIXTURE))
+        for key in ('dateCreated', 'datePublished', 'dateUpdated'):
+            if key in fields:
+                self.assertIsInstance(
+                    fields[key], (datetime.date, datetime.datetime),
+                    '%r was left as %r instead of being parsed into a datetime '
+                    '(or dropped) -- this is what crashes FFF downstream' % (
+                        key, fields[key]))
+
+    def test_serialized_date_fields_carry_the_datetime_class(self):
+        fields, _sources = extract_fields(str(self.EPUB_FIXTURE))
+        blob = serialize_saved_metadata(fields)
+        self.assertIn("<div class='metadata datetime' id='dateCreated'>", blob)
+        self.assertNotIn("<div class='metadata' id='dateCreated'>", blob)
+
+
 class NonAO3FallbackTest(unittest.TestCase):
     """A plain EPUB with no AO3 preface and no FFF title page should fall
     back to tier 1 (OPF) cleanly, without fabricating AO3-shaped fields."""

@@ -70,7 +70,12 @@ LIST_KEYS = {
 
 _WORKS_URL_RE = re.compile(r'/works/(\d+)')
 _TAG_RE = re.compile(r'<[^>]+>')
-_DATE_FORMATS = ('%Y-%m-%dT%H:%M:%S', '%Y-%m-%d')
+# FFF's own default per-key date formats differ: dateCreated ("Packaged")
+# defaults to "%Y-%m-%d %H:%M:%S" (space-separated, with time), while
+# datePublished/dateUpdated default to date-only "%Y-%m-%d". Both are also
+# personal.ini-configurable, so this can never be exhaustive -- see
+# _parse_date's caller for what happens when none of these match.
+_DATE_FORMATS = ('%Y-%m-%dT%H:%M:%S', '%Y-%m-%d %H:%M:%S', '%Y-%m-%d')
 _TZ_SUFFIX_RE = re.compile(r'([+-]\d{2}:\d{2}|Z)$')
 
 
@@ -242,11 +247,28 @@ def _derive_fields(fields):
 
 
 def _finalize_dates(fields):
+    # A field that stays a plain string here gets serialized without the
+    # 'datetime' class (see serialize.py), so load_html_metadata() won't
+    # datetime-parse it either -- it'll load as a plain string, and FFF's
+    # own downstream code (e.g. strftime() calls when composing the title
+    # page) then crashes on it. Since FFF's date formats are
+    # personal.ini-configurable, _DATE_FORMATS can never be guaranteed to
+    # match every source -- so an unparseable value must never be left in
+    # place as a raw string: drop it (or, for dateCreated, fall back to
+    # now()) rather than risk that crash downstream in FFF.
     for key in ('datePublished', 'dateUpdated', 'dateCreated'):
-        if key in fields:
-            parsed = _parse_date(fields[key])
-            if parsed is not None:
-                fields[key] = parsed
+        if key not in fields:
+            continue
+        value = fields[key]
+        if isinstance(value, (datetime.date, datetime.datetime)):
+            continue
+        parsed = _parse_date(value)
+        if parsed is not None:
+            fields[key] = parsed
+        elif key == 'dateCreated':
+            fields[key] = datetime.datetime.now()
+        else:
+            del fields[key]
 
     date_updated = fields.get('dateUpdated')
     if isinstance(date_updated, (datetime.date, datetime.datetime)) and 'lastupdate' not in fields:
