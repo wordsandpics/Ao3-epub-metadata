@@ -1,4 +1,5 @@
 # Extract EPUB Metadata
+*Because sometimes AO3 goes down (gasp!), authors delete their works, or you end up with EPUBs of questionable provenance whose metadata never made it into Calibre. If the information is in the book, this plugin will try to rescue it.*
 
 > **Disclaimer:** this was shamelessly vibe-coded. It's provided as-is, and support is minimal —
 > issues and PRs are welcome, but don't expect a fast turnaround. Back up your library (or at
@@ -6,41 +7,40 @@
 
 A Calibre plugin that extracts [FanFicFare](https://github.com/JimmXinu/FanFicFare)-compatible
 metadata from an EPUB already in your library when FanFicFare can't (re)download the story—for
-example because of Cloudflare, deleted works, manual/browser downloads, or archived copies.
+example because of Cloudflare, deleted works, manual downloads, or archived copies.
 
 It reads the EPUB and recovers as much metadata as possible (title, author, fandom, relationships,
 characters, tags, rating, warnings, word/chapter counts, dates, story URL, etc.), then does
 whichever of the following you've enabled:
 
-1. **Write to Saved Metadata Column** (on by default) — stages the metadata in FanFicFare's own
-   native format in a custom column. You then run FanFicFare's existing **"Update Calibre Metadata
-   from Saved Metadata Column"** action as usual, preserving your existing `personal.ini`
-   replacements, custom-column mappings, and cover generation. This mode deliberately does not
-   re-implement any of FanFicFare's own metadata processing — FanFicFare remains the single source
-   of truth for how that metadata becomes your library's actual Title/Tags/Comments/custom columns.
-2. **Populate standard Calibre fields** (off by default) — writes directly into your library's
-   Title/Author/Tags/Series/Comments, using FanFicFare's own default AO3 field-composition rules
-   hardcoded rather than reimplemented as a general engine. No need to also run FanFicFare's own
-   action. This is a simplified, no-round-trip path for the common case — it will never have
-   FanFicFare's full `personal.ini` per-site customizability.
-3. **Map metadata to custom columns** (off by default) — writes specific recovered fields (e.g.
-   fandom, word count, rating) into custom columns you choose, independent of the two modes above.
+1. **Save all extracted metadata** (on by default) — stores the recovered metadata in a
+   Saved Metadata column using FanFicFare's native format. You then run FFF's existing
+   **"Update Calibre Metadata from Saved Metadata Column"** action to process it as if you were downloading it, using your
+   existing `personal.ini` replacements, custom-column mappings, and cover generation. This mode
+   deliberately does not re-implement any of FFF's metadata processing.
 
-The three are independent and combinable — enable any mix you want. Modes 2 and 3 modify your
-library directly, not just a staging column, so they default off; mode 1 only stages a blob and
-defaults on.
+2. **Update standard Calibre metadata** (off by default) — writes directly to your library's
+   Title, Author, Tags, Series and Comments using FanFicFare's default AO3 metadata mapping. No
+   separate FFF update step is required. This is a simpler path intended for users who
+   don't rely on extensive `personal.ini` customisation.
+
+3. **Update custom columns** (off by default) — writes selected recovered metadata fields (such as
+   fandom, word count or rating) directly to custom columns you choose.
+
+The three options are independent and can be combined however you like. By default, only the
+Saved Metadata option is enabled because it modifies only a single custom column. The
+other two write more changes immediately to your metadata, so they're opt-in.
 
 ## What this plugin does *not* do
 
-It doesn't download stories or replace FanFicFare — recovery only works with metadata already
+It doesn't download stories or replace FanFicFare — extraction only works with metadata already
 present in the EPUB itself. And with only mode 1 enabled (the default), it never touches your
 library's Title/Tags/Comments/etc. directly; it just reconstructs FanFicFare's Saved Metadata
-column so FanFicFare can perform its normal metadata update. Modes 2/3 are opt-in exceptions to
-that, by design.
+column so FFF can do its thing. 
 
 ## How it works
 
-Metadata is recovered from multiple sources, in order of richness:
+Metadata is extracted from multiple sources, preferring the most complete source first:
 
 1. Standard EPUB/OPF metadata (title, authors, language, description, tags, `dc:source`).
 2. A FanFicFare-generated title page, if the EPUB was originally produced by FanFicFare.
@@ -72,14 +72,14 @@ Preferences → Plugins → Load plugin from file, pointing at a zipped copy of 
 In Preferences → Plugins → Extract EPUB Metadata → Customize plugin, each mode is its own
 checkable section:
 
-- **Write to Saved Metadata Column** (default on)
+- **Save all extracted metadata** (default on)
   - **Saved Metadata Column** — a Long Text ("comments") custom column. This should be the same
     column configured as FanFicFare's Saved Metadata column.
   - **Overwrite existing column value** — off by default; books with an existing value are skipped.
-- **Populate standard Calibre fields** (default off)
+- **Update standard Calibre metadata** (default off)
   - **Overwrite existing values** — off by default; a field already populated in Calibre (e.g. an
     existing Title or Tags) is left alone rather than overwritten.
-- **Map metadata to custom columns** (default off)
+- **Update custom columns** (default off)
   - **Configure column mapping…** opens a dialog listing your custom columns (of a supported
     datatype: text, comments, enumeration, series, bool, int, float, datetime), each with a
     dropdown of recovered-metadata fields compatible with that column's type. Leave a column
