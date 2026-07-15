@@ -1,14 +1,14 @@
 from calibre.gui2 import error_dialog, info_dialog
 from calibre.gui2.actions import InterfaceAction
 
-from calibre_metadata_recovery.common_utils import plugin_icon
-from calibre_metadata_recovery.config import (
+from calibre_plugins.calibre_metadata_recovery.common_utils import plugin_icon
+from calibre_plugins.calibre_metadata_recovery.config import (
     KEY_ADD_IDENTIFIER, KEY_DEST_COLUMN, KEY_OVERWRITE, KEY_PREVIEW,
     STORE_NAME, plugin_prefs,
 )
-from calibre_metadata_recovery.dialogs import BookResult, PreviewDialog
-from calibre_metadata_recovery.mapping import extract_fields
-from calibre_metadata_recovery.serialize import serialize_saved_metadata
+from calibre_plugins.calibre_metadata_recovery.dialogs import BookResult, PreviewDialog
+from calibre_plugins.calibre_metadata_recovery.mapping import extract_fields
+from calibre_plugins.calibre_metadata_recovery.serialize import serialize_saved_metadata
 
 
 class CalibreMetadataRecoveryAction(InterfaceAction):
