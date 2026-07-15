@@ -1,0 +1,104 @@
+Adapter_Classes: 
+ArchiveOfOurOwnOrgAdapter
+AO3 Categories: 
+M/M
+Author: 
+Sunsoona
+Authorhtml: 
+Sunsoona
+Author ID: 
+Sunsoona
+Author URL: 
+https://archiveofourown.org/users/Sunsoona/pseuds/Sunsoona
+I Bookmarked Story: 
+False
+My Bookmark Private: 
+False
+My Bookmark Rec: 
+False
+My Bookmark Summary: 
+Byline: 
+Sunsoona
+Chapters/Total Chapters: 
+1/1
+Characters: 
+Sherlock Holmes
+John Watson
+Greg Lestrade
+Collections: 
+Comments: 
+3
+Packaged: 
+2026-07-15T12:28:55.511471
+Published: 
+2026-07-14T00:00:00
+Updated: 
+2026-07-14T00:00:00
+Summary: 
+Uhhh something something John’s a half German shepherd and Sherlock’s a half black serval. And just some fluff and light hearted stuff overall, English is not my first language so not really that interesting :P 
+Fandoms: 
+Sherlock (BBC TV 2010)
+File Extension: 
+.epub
+File Format: 
+epub
+Freeform Tags: 
+Johnlock - Freeform
+Catlock
+Catsherlock
+dogjohn
+Cat/Human Hybrids
+Sherlock Holmes Loves John Watson
+Fluff
+Slice of Life
+Random & Short
+Hits: 
+26
+Kudos: 
+7
+Langcode: 
+en
+Language: 
+English
+Lastupdate: 
+Last Update Year/Month: 2026/07
+Last Update: 2026/07/14
+I Marked for Later: 
+False
+Chapters: 
+1
+Words: 
+1,013
+Python_Version: 
+3.14.6 (main, Jun 19 2026, 03:38:26) [Clang 16.0.0 (clang-1600.0.26.6)]
+Rating: 
+General Audiences
+Story URL Section: 
+https://archiveofourown.org/works/88555541
+Series: 
+Additional Series: 
+Additional Series: 
+Additional Series: 
+Relationships: 
+Sherlock Holmes/John Watson
+Sherlock Holmes & John Watson
+Publisher: 
+archiveofourown.org
+Site Abbrev: 
+ao3
+Status: 
+Completed
+Story ID: 
+88555541
+Story URL: 
+https://archiveofourown.org/works/88555541
+I Subscribed: 
+False
+Title: 
+Johnlock—A random day
+Titlehtml: 
+Johnlock—A random day
+Downloader Version: 
+FanFicFare v4.59.5
+Warnings: 
+Creator Chose Not To Use Archive Warnings
