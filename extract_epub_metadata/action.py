@@ -1,5 +1,6 @@
 from calibre.gui2 import error_dialog, info_dialog
 from calibre.gui2.actions import InterfaceAction
+from qt.core import QMenu
 
 from calibre_plugins.extract_epub_metadata.calibre_fields import (
     apply_custom_column_mapping, apply_standard_fields,
@@ -30,6 +31,16 @@ class ExtractEpubMetadataAction(InterfaceAction):
     def genesis(self):
         self.qaction.setIcon(plugin_icon())
         self.qaction.triggered.connect(self.run)
+
+        # dropdown arrow (popup_type defaults to MenuButtonPopup) so the
+        # settings are reachable without first running an extraction.
+        self.menu = QMenu(self.gui)
+        self.menu.addAction('Extract Metadata', self.run)
+        self.menu.addAction('Configure…', self.show_configuration)
+        self.qaction.setMenu(self.menu)
+
+    def show_configuration(self):
+        self.interface_action_base_plugin.do_user_config(self.gui)
 
     def run(self):
         prefs = get_prefs()

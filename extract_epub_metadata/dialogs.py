@@ -4,7 +4,9 @@ from qt.core import (
     QScrollArea, QSplitter, Qt, QVBoxLayout, QWidget,
 )
 
-from calibre_plugins.extract_epub_metadata.calibre_fields import permitted_keys_for_datatype
+from calibre_plugins.extract_epub_metadata.calibre_fields import (
+    ALL_METADATA_KEYS, compatible_columns_for_key, field_help, field_label,
+)
 
 
 def _format_field_dict(fields, sources=None):
@@ -87,10 +89,7 @@ class PreviewDialog(QDialog):
 
         layout = QVBoxLayout(self)
 
-        intro = QLabel(
-            'Review recovered metadata before writing it -- across whichever '
-            'modes are enabled in this plugin\'s settings. Uncheck any book '
-            'to skip it.')
+        intro = QLabel('Review extracted metadata. Uncheck any book to skip it.')
         intro.setWordWrap(True)
         layout.addWidget(intro)
 
@@ -142,27 +141,27 @@ class PreviewDialog(QDialog):
 
 
 class ColumnMappingDialog(QDialog):
-    """Mode 3 config: one row per supported custom column, each with a
-    dropdown of metadata keys compatible with that column's datatype
-    (calibre_fields.py::permitted_keys_for_datatype). Only columns whose
-    datatype this plugin knows how to write to are listed."""
-
-    SUPPORTED_DATATYPES = (
-        'text', 'comments', 'enumeration', 'series', 'bool', 'int', 'float', 'datetime',
-    )
+    """Mode 3 config: one row per recoverable metadata field (as a static
+    label, with a tooltip explaining it), each with a dropdown of the
+    custom columns compatible with that field
+    (calibre_fields.py::compatible_columns_for_key). Fields with no
+    compatible column in this library aren't shown."""
 
     def __init__(self, gui, custom_columns, current_mapping):
         QDialog.__init__(self, gui)
         self.setWindowTitle('Extract Epub Metadata -- Custom Column Mapping')
         self.resize(600, 420)
 
+        # current_mapping is {column_key: metadata_key} (matches how it's
+        # stored/consumed elsewhere) -- invert it once for O(1) lookup of
+        # "what column, if any, is this field currently mapped to".
+        column_for_key = {v: k for k, v in current_mapping.items()}
+
         layout = QVBoxLayout(self)
 
         intro = QLabel(
-            'Choose which recovered metadata field, if any, each custom '
-            'column should be filled with. Columns left as "(not mapped)" '
-            'are never touched. A column is skipped for a given book if '
-            'its mapped field wasn\'t recovered for that book.')
+            'Choose which column each extracted field should be written '
+            'to. Empty or not mapped fields will be skipped.')
         intro.setWordWrap(True)
         layout.addWidget(intro)
 
@@ -172,23 +171,27 @@ class ColumnMappingDialog(QDialog):
         form = QFormLayout(form_widget)
 
         self.rows = []
-        for column_key, column in sorted(custom_columns.items(), key=lambda kv: kv[1]['name']):
-            if column['datatype'] not in self.SUPPORTED_DATATYPES:
-                continue
-            keys = permitted_keys_for_datatype(
-                column['datatype'], bool(column.get('is_multiple')))
-            if not keys:
+        column_names = {key: col['name'] for key, col in custom_columns.items()}
+        for metadata_key in sorted(ALL_METADATA_KEYS, key=field_label):
+            column_keys = compatible_columns_for_key(metadata_key, custom_columns)
+            if not column_keys:
                 continue
 
             combo = QComboBox(form_widget)
             combo.addItem('(not mapped)', '')
-            for key in sorted(keys):
-                combo.addItem(key, key)
-            idx = combo.findData(current_mapping.get(column_key, ''))
+            for column_key in sorted(column_keys, key=lambda ck: column_names[ck]):
+                combo.addItem(column_names[column_key], column_key)
+            idx = combo.findData(column_for_key.get(metadata_key, ''))
             combo.setCurrentIndex(idx if idx >= 0 else 0)
 
-            form.addRow('%s (%s):' % (column['name'], column['datatype']), combo)
-            self.rows.append((column_key, combo))
+            label = QLabel(field_label(metadata_key) + ':', form_widget)
+            help_text = field_help(metadata_key)
+            if help_text:
+                label.setToolTip(help_text)
+                combo.setToolTip(help_text)
+
+            form.addRow(label, combo)
+            self.rows.append((metadata_key, combo))
 
         form_widget.setLayout(form)
         scroll.setWidget(form_widget)
@@ -207,8 +210,8 @@ class ColumnMappingDialog(QDialog):
 
     def mapping(self):
         result = {}
-        for column_key, combo in self.rows:
-            key = combo.itemData(combo.currentIndex())
-            if key:
-                result[column_key] = key
+        for metadata_key, combo in self.rows:
+            column_key = combo.itemData(combo.currentIndex())
+            if column_key:
+                result[column_key] = metadata_key
         return result

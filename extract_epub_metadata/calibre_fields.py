@@ -152,26 +152,140 @@ KEY_KINDS = {
 # at write time (mirrors FFF's status-C/status-I permitted_values entries).
 STATUS_COMPLETE_KEY = 'status-C (Completed = checked)'
 
+# Every key the mapping-config UI can offer a row for, KEY_KINDS plus the
+# synthetic boolean key -- a stable public list so callers (dialogs.py)
+# don't need to reach into KEY_KINDS' internals directly.
+ALL_METADATA_KEYS = tuple(KEY_KINDS.keys()) + (STATUS_COMPLETE_KEY,)
+
+# Calibre custom-column datatypes this plugin knows how to write to.
+SUPPORTED_DATATYPES = (
+    'text', 'comments', 'enumeration', 'series', 'bool', 'int', 'float', 'datetime',
+)
+
+# Friendlier display names for the mapping-config UI, since the raw
+# KEY_KINDS keys are FanFicFare's own internal vocabulary (some are
+# self-explanatory, several are jargon). Falls back to the raw key for
+# anything not listed here.
+FIELD_LABELS = {
+    'title': 'Title',
+    'author': 'Author(s)',
+    'authorId': 'Author ID',
+    'authorUrl': 'Author URL',
+    'byline': 'Byline',
+    'description': 'Summary',
+    'rating': 'Rating',
+    'language': 'Language',
+    'langcode': 'Language Code',
+    'site': 'Site',
+    'siteabbrev': 'Site Abbreviation',
+    'status': 'Status',
+    'storyId': 'Story ID',
+    'storyUrl': 'Story URL',
+    'sectionUrl': 'Story URL (Section)',
+    'chapterslashtotal': 'Chapters (Downloaded/Total)',
+    'formatname': 'File Format',
+    'formatext': 'File Extension',
+    'fandoms': 'Fandom(s)',
+    'ships': 'Relationship(s)',
+    'characters': 'Characters',
+    'warnings': 'Archive Warnings',
+    'freeformtags': 'Additional Tags',
+    'ao3categories': 'Category',
+    'lastupdate': 'Last Update (text)',
+    'numWords': 'Word Count',
+    'numChapters': 'Chapter Count',
+    'datePublished': 'Date Published',
+    'dateUpdated': 'Date Updated',
+    'dateCreated': 'Date Recovered',
+    STATUS_COMPLETE_KEY: 'Completed? (yes/no)',
+}
+
+# Explains what each field actually means/where it comes from -- shown as
+# a tooltip on the field's label in the mapping dialog, since the
+# friendlier names above don't always make that obvious on their own.
+FIELD_HELP = {
+    'author': 'Author name(s).',
+    'authorId': "The site's username for the author.",
+    'authorUrl': "Link to the author's profile.",
+    'byline': 'Author name(s) as a single line of text.',
+    'description': "The story's summary.",
+    'rating': 'Content rating, e.g. "Teen And Up Audiences" or "Mature".',
+    'language': 'Full language name, e.g. "English".',
+    'langcode': 'Short language code, e.g. "en".',
+    'site': 'The domain the story was posted on, e.g. "archiveofourown.org".',
+    'siteabbrev': 'Short site code FanFicFare uses internally, e.g. "ao3".',
+    'status': '"Completed" or "In-Progress".',
+    'storyId': "The site's internal ID number for this story.",
+    'storyUrl': 'Link to the original story.',
+    'sectionUrl': 'Same as Story URL, unless only part of the story was recovered.',
+    'chapterslashtotal': 'Chapters recovered vs. total chapters, e.g. "12/12".',
+    'fandoms': 'The fandom(s)/canon(s) this story is set in.',
+    'ships': 'Relationships/pairings, as tagged on the source site.',
+    'warnings': "Archive warnings, e.g. \"Creator Chose Not To Use Archive Warnings\".",
+    'freeformtags': "AO3's freeform/additional tags.",
+    'ao3categories': 'AO3 category, e.g. "M/M", "F/F", "Gen".',
+    'lastupdate': 'Human-readable last-updated text, e.g. "2024/03".',
+    'dateCreated': 'When this plugin ran -- not a date from the source site.',
+    STATUS_COMPLETE_KEY: 'True if the recovered status is "Completed", false otherwise.',
+}
+
+
+def field_label(metadata_key):
+    return FIELD_LABELS.get(metadata_key, metadata_key)
+
+
+def field_help(metadata_key):
+    return FIELD_HELP.get(metadata_key, '')
+
+
+def _kind_compatible(kind, datatype, is_multiple):
+    """
+    Shared compatibility rule between a metadata key's `kind`
+    (KEY_KINDS-style: 'text'/'list'/'int'/'datetime') and a custom
+    column's datatype/is_multiple -- used both to list which metadata
+    keys suit a given column (permitted_keys_for_datatype) and, in
+    reverse, which columns suit a given key (compatible_columns_for_key).
+    List-kind values are offered for non-multiple text/comments/
+    enumeration columns too, since _coerce_for_column joins them
+    (', ' or ' & ' for "contains names" columns) rather than rejecting them.
+    """
+    if datatype in ('int', 'float'):
+        return kind == 'int'
+    if datatype == 'datetime':
+        return kind == 'datetime'
+    if datatype == 'series':
+        return kind == 'text'
+    if datatype in ('text', 'comments', 'enumeration'):
+        return kind in ('text', 'list')
+    return False
+
 
 def permitted_keys_for_datatype(datatype, is_multiple=False):
     """
     Returns the list of metadata keys (KEY_KINDS keys, plus the synthetic
     STATUS_COMPLETE_KEY where relevant) that make sense to offer for a
-    custom column of the given Calibre datatype, for the mapping-config UI.
+    custom column of the given Calibre datatype.
     """
-    if datatype in ('int', 'float'):
-        return [k for k, kind in KEY_KINDS.items() if kind == 'int']
     if datatype == 'bool':
         return [STATUS_COMPLETE_KEY]
-    if datatype == 'datetime':
-        return [k for k, kind in KEY_KINDS.items() if kind == 'datetime']
-    if datatype == 'series':
-        return [k for k, kind in KEY_KINDS.items() if kind == 'text']
-    if datatype in ('text', 'comments', 'enumeration'):
-        if is_multiple:
-            return [k for k, kind in KEY_KINDS.items() if kind in ('text', 'list')]
-        return [k for k, kind in KEY_KINDS.items() if kind == 'text']
-    return []
+    return [k for k, kind in KEY_KINDS.items() if _kind_compatible(kind, datatype, is_multiple)]
+
+
+def compatible_columns_for_key(metadata_key, custom_columns):
+    """
+    Reverse of permitted_keys_for_datatype: given a metadata key, which of
+    `custom_columns` (a field_metadata-shaped dict, e.g.
+    db.field_metadata.custom_field_metadata()) can it be written to?
+    """
+    if metadata_key == STATUS_COMPLETE_KEY:
+        return [key for key, column in custom_columns.items()
+                if column['datatype'] == 'bool']
+    kind = KEY_KINDS.get(metadata_key)
+    if kind is None:
+        return []
+    return [key for key, column in custom_columns.items()
+            if column['datatype'] in SUPPORTED_DATATYPES
+            and _kind_compatible(kind, column['datatype'], bool(column.get('is_multiple')))]
 
 
 def _coerce_for_column(fields, metadata_key, column):

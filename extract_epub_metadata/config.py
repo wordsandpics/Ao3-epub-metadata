@@ -6,6 +6,20 @@ from qt.core import (
 
 from calibre_plugins.extract_epub_metadata.dialogs import ColumnMappingDialog
 
+# Extra vertical breathing room between the three mode group boxes, so
+# they read as clearly separate choices rather than one dense block.
+GROUP_SPACING = 14
+
+
+def _subtext_label(text, parent):
+    label = QLabel(text, parent)
+    label.setWordWrap(True)
+    font = label.font()
+    font.setItalic(True)
+    label.setFont(font)
+    return label
+
+
 STORE_NAME = 'Options'
 
 KEY_MODE1_ENABLED = 'mode1Enabled'
@@ -78,11 +92,14 @@ class ConfigWidget(QWidget):
         self.setLayout(layout)
 
         layout.addWidget(self._build_mode1_group(prefs, custom_columns))
+        layout.addSpacing(GROUP_SPACING)
         layout.addWidget(self._build_mode2_group(prefs))
+        layout.addSpacing(GROUP_SPACING)
         layout.addWidget(self._build_mode3_group(prefs, custom_columns))
+        layout.addSpacing(GROUP_SPACING)
 
         self.add_identifier = QCheckBox(
-            "Add missing story-URL identifier ('url')", self)
+            'Add missing story-URL identifier', self)
         self.add_identifier.setToolTip(
             "FanFicFare needs a recognized story URL (Calibre's 'url' or "
             "'uri' identifier) to pick the right site adapter when it reads "
@@ -104,7 +121,7 @@ class ConfigWidget(QWidget):
         layout.addStretch(1)
 
     def _build_mode1_group(self, prefs, custom_columns):
-        group = QGroupBox('Write to Saved Metadata Column', self)
+        group = QGroupBox('Save all extracted metadata', self)
         group.setCheckable(True)
         group.setChecked(prefs[KEY_MODE1_ENABLED])
         group.setToolTip(
@@ -113,6 +130,9 @@ class ConfigWidget(QWidget):
             "Metadata Column\" action to read back later. Does not touch "
             "your library's Title/Tags/etc. directly.")
         self.mode1_group = group
+
+        subtext = _subtext_label(
+            '(Raw metadata in one column for FanFicFare processing)', self)
 
         col_row = QHBoxLayout()
         label = QLabel('Saved Metadata Column:')
@@ -143,13 +163,14 @@ class ConfigWidget(QWidget):
         self.overwrite.setChecked(prefs[KEY_OVERWRITE])
 
         inner = QVBoxLayout()
+        inner.addWidget(subtext)
         inner.addLayout(col_row)
         inner.addWidget(self.overwrite)
         group.setLayout(inner)
         return group
 
     def _build_mode2_group(self, prefs):
-        group = QGroupBox('Populate standard Calibre fields', self)
+        group = QGroupBox('Update standard Calibre metadata', self)
         group.setCheckable(True)
         group.setChecked(prefs[KEY_MODE2_ENABLED])
         group.setToolTip(
@@ -160,10 +181,7 @@ class ConfigWidget(QWidget):
             "not just a staging column.")
         self.mode2_group = group
 
-        warning = QLabel(
-            'Writes directly into your library (Title / Author / Tags / '
-            'Series / Comments), not just a staging column.')
-        warning.setWordWrap(True)
+        subtext = _subtext_label('(Title, Author, Tags, Series, Comments...)', self)
 
         self.mode2_overwrite = QCheckBox('Overwrite existing values', self)
         self.mode2_overwrite.setToolTip(
@@ -172,13 +190,13 @@ class ConfigWidget(QWidget):
         self.mode2_overwrite.setChecked(prefs[KEY_MODE2_OVERWRITE])
 
         inner = QVBoxLayout()
-        inner.addWidget(warning)
+        inner.addWidget(subtext)
         inner.addWidget(self.mode2_overwrite)
         group.setLayout(inner)
         return group
 
     def _build_mode3_group(self, prefs, custom_columns):
-        group = QGroupBox('Map metadata to custom columns', self)
+        group = QGroupBox('Update custom columns', self)
         group.setCheckable(True)
         group.setChecked(prefs[KEY_MODE3_ENABLED])
         group.setToolTip(
@@ -188,10 +206,9 @@ class ConfigWidget(QWidget):
         self.mode3_group = group
         self.column_mapping = dict(prefs[KEY_COLUMN_MAPPING])
 
-        warning = QLabel(
-            'Writes directly into whichever custom columns you map below, '
-            'not just a staging column.')
-        warning.setWordWrap(True)
+        subtext = _subtext_label(
+            "(Map extracted data directly to your own columns - useful if "
+            "you don't use FanFicFare)", self)
 
         configure_button = QPushButton('Configure column mapping…', self)
         configure_button.clicked.connect(lambda: self._open_column_mapping(custom_columns))
@@ -199,7 +216,7 @@ class ConfigWidget(QWidget):
         self._update_mode3_summary()
 
         inner = QVBoxLayout()
-        inner.addWidget(warning)
+        inner.addWidget(subtext)
         inner.addWidget(configure_button)
         inner.addWidget(self.mode3_summary)
         group.setLayout(inner)

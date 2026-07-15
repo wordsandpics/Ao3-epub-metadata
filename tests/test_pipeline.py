@@ -23,8 +23,8 @@ sys.path.insert(0, str(TESTS_DIR / 'calibre_stub'))
 sys.path.insert(0, str(REPO_ROOT))
 
 from extract_epub_metadata.calibre_fields import (  # noqa: E402
-    STATUS_COMPLETE_KEY, compute_custom_column_values, compute_standard_fields,
-    permitted_keys_for_datatype,
+    STATUS_COMPLETE_KEY, compatible_columns_for_key, compute_custom_column_values,
+    compute_standard_fields, field_label, permitted_keys_for_datatype,
 )
 from extract_epub_metadata.mapping import extract_fields  # noqa: E402
 from extract_epub_metadata.serialize import serialize_saved_metadata  # noqa: E402
@@ -293,7 +293,10 @@ class CustomColumnMappingTest(unittest.TestCase):
         self.assertEqual(permitted_keys_for_datatype('bool'), [STATUS_COMPLETE_KEY])
         self.assertIn('datePublished', permitted_keys_for_datatype('datetime'))
         self.assertIn('fandoms', permitted_keys_for_datatype('text', is_multiple=True))
-        self.assertNotIn('fandoms', permitted_keys_for_datatype('text', is_multiple=False))
+        # list-kind keys are ALSO offered for non-multiple text columns --
+        # _coerce_for_column joins them (', ' or ' & ') rather than
+        # rejecting them, so the dropdown shouldn't hide that option.
+        self.assertIn('fandoms', permitted_keys_for_datatype('text', is_multiple=False))
         self.assertIn('title', permitted_keys_for_datatype('text', is_multiple=False))
 
     def test_scalar_text_column(self):
@@ -366,6 +369,26 @@ class CustomColumnMappingTest(unittest.TestCase):
         values = compute_custom_column_values(fields_without_dateCreated, mapping, self.columns)
         self.assertIn('#int_col', values)
         self.assertNotIn('#date_col', values)
+
+    def test_compatible_columns_for_key_is_the_reverse_of_permitted_keys(self):
+        # numWords (kind='int') should only match the int-typed column.
+        self.assertEqual(compatible_columns_for_key('numWords', self.columns), ['#int_col'])
+        # datePublished (kind='datetime') should only match the datetime column.
+        self.assertEqual(compatible_columns_for_key('datePublished', self.columns), ['#date_col'])
+        # the synthetic completed-status key should only match the bool column.
+        self.assertEqual(compatible_columns_for_key(STATUS_COMPLETE_KEY, self.columns), ['#bool_col'])
+        # a list-kind key should match every text/comments/enumeration
+        # column (single or multi-valued -- see _kind_compatible's
+        # docstring), but not a series column, which only takes a scalar.
+        text_like = compatible_columns_for_key('characters', self.columns)
+        for col in ('#text_col', '#tags_col', '#names_col', '#enum_col'):
+            self.assertIn(col, text_like)
+        self.assertNotIn('#series_col', text_like)
+        self.assertNotIn('#int_col', text_like)
+
+    def test_field_label_falls_back_to_raw_key(self):
+        self.assertEqual(field_label('numWords'), 'Word Count')
+        self.assertEqual(field_label('not_a_real_key'), 'not_a_real_key')
 
 
 if __name__ == '__main__':
