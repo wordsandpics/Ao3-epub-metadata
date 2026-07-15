@@ -1,15 +1,35 @@
 from qt.core import (
-    QAbstractItemView, QDialog, QDialogButtonBox, QHBoxLayout, QLabel,
-    QListWidget, QListWidgetItem, QPlainTextEdit, QSplitter, Qt, QVBoxLayout,
+    QAbstractItemView, QComboBox, QDialog, QDialogButtonBox, QFormLayout,
+    QHBoxLayout, QLabel, QListWidget, QListWidgetItem, QPlainTextEdit,
+    QScrollArea, QSplitter, Qt, QVBoxLayout, QWidget,
 )
+
+from calibre_plugins.extract_epub_metadata.calibre_fields import permitted_keys_for_datatype
+
+
+def _format_field_dict(fields, sources=None):
+    lines = []
+    for key in sorted(fields):
+        value = fields[key]
+        if isinstance(value, list):
+            value = '; '.join(str(v) for v in value)
+        if sources is not None:
+            lines.append('  %s [%s]: %s' % (key, sources.get(key, 'derived'), value))
+        else:
+            lines.append('  %s: %s' % (key, value))
+    return lines
 
 
 class BookResult:
-    """One book's outcome from the extraction/mapping/serialization pipeline."""
+    """One book's outcome from the extraction/mapping/serialization pipeline.
+    `blob` and `standard_fields` are only populated for modes that are
+    actually enabled for this run (empty/falsy otherwise), so
+    summary_lines() only shows sections for what will actually happen."""
 
     def __init__(self, book_id, title, fields, sources, blob,
                  identifier_url=None, identifier_already_set=False,
-                 existing_column_value=None, error=None):
+                 existing_column_value=None, standard_fields=None,
+                 custom_column_values=None, error=None):
         self.book_id = book_id
         self.title = title
         self.fields = fields
@@ -18,6 +38,8 @@ class BookResult:
         self.identifier_url = identifier_url
         self.identifier_already_set = identifier_already_set
         self.existing_column_value = existing_column_value
+        self.standard_fields = standard_fields or {}
+        self.custom_column_values = custom_column_values or {}
         self.error = error
 
     def summary_lines(self):
@@ -30,16 +52,25 @@ class BookResult:
         else:
             lines.append('Story URL identifier: not recovered -- FanFicFare '
                           'may not be able to pick an adapter for this book.')
-        if self.existing_column_value:
-            lines.append('Saved Metadata column already has a value.')
-        lines.append('')
-        lines.append('Recovered fields (source tier in brackets):')
-        for key in sorted(self.fields):
-            value = self.fields[key]
-            if isinstance(value, list):
-                value = '; '.join(str(v) for v in value)
-            source = self.sources.get(key, 'derived')
-            lines.append('  %s [%s]: %s' % (key, source, value))
+
+        if self.blob:
+            lines.append('')
+            lines.append('=== Saved Metadata Column ===')
+            if self.existing_column_value:
+                lines.append('(already has a value)')
+            lines.append('Recovered fields (source tier in brackets):')
+            lines.extend(_format_field_dict(self.fields, self.sources))
+
+        if self.standard_fields:
+            lines.append('')
+            lines.append('=== Standard Calibre Fields ===')
+            lines.extend(_format_field_dict(self.standard_fields))
+
+        if self.custom_column_values:
+            lines.append('')
+            lines.append('=== Custom Column Mapping ===')
+            lines.extend(_format_field_dict(self.custom_column_values))
+
         return lines
 
 
@@ -57,8 +88,9 @@ class PreviewDialog(QDialog):
         layout = QVBoxLayout(self)
 
         intro = QLabel(
-            'Review recovered metadata before writing it into the Saved '
-            'Metadata column. Uncheck any book to skip it.')
+            'Review recovered metadata before writing it -- across whichever '
+            'modes are enabled in this plugin\'s settings. Uncheck any book '
+            'to skip it.')
         intro.setWordWrap(True)
         layout.addWidget(intro)
 
@@ -107,3 +139,76 @@ class PreviewDialog(QDialog):
             if item.checkState() == Qt.CheckState.Checked:
                 selected.append(item.data(Qt.ItemDataRole.UserRole))
         return selected
+
+
+class ColumnMappingDialog(QDialog):
+    """Mode 3 config: one row per supported custom column, each with a
+    dropdown of metadata keys compatible with that column's datatype
+    (calibre_fields.py::permitted_keys_for_datatype). Only columns whose
+    datatype this plugin knows how to write to are listed."""
+
+    SUPPORTED_DATATYPES = (
+        'text', 'comments', 'enumeration', 'series', 'bool', 'int', 'float', 'datetime',
+    )
+
+    def __init__(self, gui, custom_columns, current_mapping):
+        QDialog.__init__(self, gui)
+        self.setWindowTitle('Extract Epub Metadata -- Custom Column Mapping')
+        self.resize(600, 420)
+
+        layout = QVBoxLayout(self)
+
+        intro = QLabel(
+            'Choose which recovered metadata field, if any, each custom '
+            'column should be filled with. Columns left as "(not mapped)" '
+            'are never touched. A column is skipped for a given book if '
+            'its mapped field wasn\'t recovered for that book.')
+        intro.setWordWrap(True)
+        layout.addWidget(intro)
+
+        scroll = QScrollArea(self)
+        scroll.setWidgetResizable(True)
+        form_widget = QWidget(scroll)
+        form = QFormLayout(form_widget)
+
+        self.rows = []
+        for column_key, column in sorted(custom_columns.items(), key=lambda kv: kv[1]['name']):
+            if column['datatype'] not in self.SUPPORTED_DATATYPES:
+                continue
+            keys = permitted_keys_for_datatype(
+                column['datatype'], bool(column.get('is_multiple')))
+            if not keys:
+                continue
+
+            combo = QComboBox(form_widget)
+            combo.addItem('(not mapped)', '')
+            for key in sorted(keys):
+                combo.addItem(key, key)
+            idx = combo.findData(current_mapping.get(column_key, ''))
+            combo.setCurrentIndex(idx if idx >= 0 else 0)
+
+            form.addRow('%s (%s):' % (column['name'], column['datatype']), combo)
+            self.rows.append((column_key, combo))
+
+        form_widget.setLayout(form)
+        scroll.setWidget(form_widget)
+        layout.addWidget(scroll, 1)
+
+        if not self.rows:
+            layout.addWidget(QLabel(
+                'No custom columns with a supported datatype found. Create '
+                'one in Preferences → Add your own columns first.'))
+
+        buttons = QDialogButtonBox(
+            QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel, self)
+        buttons.accepted.connect(self.accept)
+        buttons.rejected.connect(self.reject)
+        layout.addWidget(buttons)
+
+    def mapping(self):
+        result = {}
+        for column_key, combo in self.rows:
+            key = combo.itemData(combo.currentIndex())
+            if key:
+                result[column_key] = key
+        return result

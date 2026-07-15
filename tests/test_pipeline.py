@@ -22,6 +22,10 @@ REPO_ROOT = TESTS_DIR.parent
 sys.path.insert(0, str(TESTS_DIR / 'calibre_stub'))
 sys.path.insert(0, str(REPO_ROOT))
 
+from extract_epub_metadata.calibre_fields import (  # noqa: E402
+    STATUS_COMPLETE_KEY, compute_custom_column_values, compute_standard_fields,
+    permitted_keys_for_datatype,
+)
 from extract_epub_metadata.mapping import extract_fields  # noqa: E402
 from extract_epub_metadata.serialize import serialize_saved_metadata  # noqa: E402
 
@@ -205,6 +209,163 @@ class NonAO3FallbackTest(unittest.TestCase):
         # and therefore no site/siteabbrev/sectionUrl derived from one.
         self.assertNotIn('storyUrl', fields)
         self.assertNotIn('site', fields)
+
+
+class ComputeStandardFieldsTest(unittest.TestCase):
+    """Mode 2 (direct-to-Calibre-fields): compute_standard_fields() is pure
+    and needs no live Calibre, unlike apply_standard_fields()/
+    apply_custom_column_mapping() which do db.new_api writes and can only
+    be exercised via calibre-debug against a real library (see the plan)."""
+
+    EPUB_FIXTURE = TESTS_DIR / 'fixtures' / 'johnlock_a_random_day.epub'
+
+    @classmethod
+    def setUpClass(cls):
+        cls.fields, _sources = extract_fields(str(cls.EPUB_FIXTURE))
+        cls.computed = compute_standard_fields(cls.fields)
+
+    def test_title_and_authors(self):
+        self.assertEqual(self.computed['title'], 'Johnlock—A random day')
+        self.assertEqual(self.computed['authors'], ['Sunsoona'])
+
+    def test_tags_composite_matches_fff_defaults(self):
+        # FFF's default AO3 Tags composition: fandoms + ships + characters +
+        # freeformtags + ao3categories + status -- NOT rating/warnings.
+        tags = set(self.computed['tags'])
+        self.assertIn('Sherlock (BBC TV 2010)', tags)  # fandoms
+        self.assertIn('Sherlock Holmes/John Watson', tags)  # ships
+        self.assertIn('Sherlock Holmes', tags)  # characters
+        self.assertIn('Johnlock - Freeform', tags)  # freeformtags
+        self.assertIn('M/M', tags)  # ao3categories
+        self.assertIn('Completed', tags)  # status
+        self.assertNotIn('General Audiences', tags)  # rating -- excluded
+        self.assertNotIn('Creator Chose Not To Use Archive Warnings', tags)  # warnings -- excluded
+        # deduped: no tag should appear twice in the source lists->flattened list
+        self.assertEqual(len(self.computed['tags']), len(tags))
+
+    def test_comments_is_raw_not_sanitized(self):
+        # sanitize_comments_html() needs a real Calibre import -- deferred
+        # to apply_standard_fields() at write time, see calibre_fields.py's
+        # module docstring. Here it should just be the plain description.
+        self.assertEqual(self.computed['comments'], self.fields['description'])
+        self.assertNotIn('<p>', self.computed['comments'])
+
+    def test_no_series_when_not_extracted(self):
+        # this fixture's extraction never populates a series01 key.
+        self.assertNotIn('series', self.computed)
+
+    def test_pubdate_and_language(self):
+        self.assertEqual(self.computed['pubdate'], self.fields['datePublished'])
+        self.assertEqual(self.computed['language'], 'English')
+
+    def test_sparse_in_sparse_out(self):
+        # no field should be fabricated for a key that was never populated.
+        minimal = compute_standard_fields({'title': 'Only A Title'})
+        self.assertEqual(minimal, {'title': 'Only A Title'})
+
+
+class CustomColumnMappingTest(unittest.TestCase):
+    """Mode 3: compute_custom_column_values() is pure -- it needs a
+    column-metadata dict shaped like db.field_metadata.custom_field_metadata()
+    (verified via calibre-debug against a real library, see calibre_fields.py),
+    but doesn't need a live `db` itself."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.fields, _sources = extract_fields(
+            str(TESTS_DIR / 'fixtures' / 'johnlock_a_random_day.epub'))
+        cls.columns = {
+            '#text_col': {'datatype': 'text', 'is_multiple': False, 'display': {}},
+            '#tags_col': {'datatype': 'text', 'is_multiple': True, 'display': {}},
+            '#names_col': {'datatype': 'text', 'is_multiple': True,
+                           'display': {'is_names': True}},
+            '#int_col': {'datatype': 'int', 'is_multiple': False, 'display': {}},
+            '#bool_col': {'datatype': 'bool', 'is_multiple': False, 'display': {}},
+            '#date_col': {'datatype': 'datetime', 'is_multiple': False, 'display': {}},
+            '#enum_col': {'datatype': 'enumeration', 'is_multiple': False,
+                          'display': {'enum_values': ['Completed', 'In-Progress']}},
+            '#series_col': {'datatype': 'series', 'is_multiple': False, 'display': {}},
+        }
+
+    def test_permitted_keys_by_datatype(self):
+        self.assertIn('numWords', permitted_keys_for_datatype('int'))
+        self.assertNotIn('title', permitted_keys_for_datatype('int'))
+        self.assertEqual(permitted_keys_for_datatype('bool'), [STATUS_COMPLETE_KEY])
+        self.assertIn('datePublished', permitted_keys_for_datatype('datetime'))
+        self.assertIn('fandoms', permitted_keys_for_datatype('text', is_multiple=True))
+        self.assertNotIn('fandoms', permitted_keys_for_datatype('text', is_multiple=False))
+        self.assertIn('title', permitted_keys_for_datatype('text', is_multiple=False))
+
+    def test_scalar_text_column(self):
+        mapping = {'#text_col': 'rating'}
+        values = compute_custom_column_values(self.fields, mapping, self.columns)
+        self.assertEqual(values['#text_col'], 'General Audiences')
+
+    def test_multiple_text_column_gets_a_list(self):
+        mapping = {'#tags_col': 'characters'}
+        values = compute_custom_column_values(self.fields, mapping, self.columns)
+        self.assertEqual(values['#tags_col'], self.fields['characters'])
+
+    def test_single_text_column_joins_a_list_source(self):
+        mapping = {'#text_col': 'characters'}
+        values = compute_custom_column_values(self.fields, mapping, self.columns)
+        self.assertEqual(values['#text_col'], ', '.join(self.fields['characters']))
+
+    def test_is_names_column_joins_with_ampersand(self):
+        mapping = {'#names_col': 'author'}
+        values = compute_custom_column_values(self.fields, mapping, self.columns)
+        # single author -- still a list (is_multiple), join logic only
+        # applies when the column itself is NOT multiple valued.
+        self.assertEqual(values['#names_col'], self.fields['author'])
+
+    def test_int_column(self):
+        mapping = {'#int_col': 'numWords'}
+        values = compute_custom_column_values(self.fields, mapping, self.columns)
+        self.assertEqual(values['#int_col'], self.fields['numWords'])
+        self.assertIsInstance(values['#int_col'], int)
+
+    def test_int_column_rejects_non_int_key(self):
+        mapping = {'#int_col': 'title'}
+        values = compute_custom_column_values(self.fields, mapping, self.columns)
+        self.assertNotIn('#int_col', values)
+
+    def test_bool_column_from_status(self):
+        mapping = {'#bool_col': STATUS_COMPLETE_KEY}
+        values = compute_custom_column_values(self.fields, mapping, self.columns)
+        self.assertIs(values['#bool_col'], self.fields['status'] == 'Completed')
+
+    def test_datetime_column(self):
+        mapping = {'#date_col': 'datePublished'}
+        values = compute_custom_column_values(self.fields, mapping, self.columns)
+        self.assertEqual(values['#date_col'], self.fields['datePublished'])
+
+    def test_enumeration_column_accepts_valid_value(self):
+        mapping = {'#enum_col': 'status'}
+        values = compute_custom_column_values(self.fields, mapping, self.columns)
+        self.assertEqual(values['#enum_col'], 'Completed')
+
+    def test_enumeration_column_rejects_value_not_in_enum(self):
+        # 'rating' ("General Audiences") isn't one of #enum_col's enum_values.
+        mapping = {'#enum_col': 'rating'}
+        values = compute_custom_column_values(self.fields, mapping, self.columns)
+        self.assertNotIn('#enum_col', values)
+
+    def test_series_column(self):
+        fields_with_series = dict(self.fields, series01='My Series [3]')
+        mapping = {'#series_col': 'series01'}
+        values = compute_custom_column_values(fields_with_series, mapping, self.columns)
+        self.assertEqual(values['#series_col'], 'My Series [3]')
+
+    def test_unmapped_columns_produce_nothing(self):
+        values = compute_custom_column_values(self.fields, {}, self.columns)
+        self.assertEqual(values, {})
+
+    def test_missing_source_key_is_skipped_not_error(self):
+        mapping = {'#int_col': 'numWords', '#date_col': 'dateCreated'}
+        fields_without_dateCreated = {k: v for k, v in self.fields.items() if k != 'dateCreated'}
+        values = compute_custom_column_values(fields_without_dateCreated, mapping, self.columns)
+        self.assertIn('#int_col', values)
+        self.assertNotIn('#date_col', values)
 
 
 if __name__ == '__main__':
