@@ -1,7 +1,7 @@
 from calibre.utils.config import JSONConfig
 from qt.core import (
     QCheckBox, QComboBox, QGroupBox, QHBoxLayout, QLabel, QPushButton,
-    QVBoxLayout, QWidget,
+    QTabWidget, QVBoxLayout, QWidget,
 )
 
 from calibre_plugins.extract_epub_metadata.dialogs import ColumnMappingDialog
@@ -35,6 +35,13 @@ KEY_COLUMN_MAPPING = 'columnMapping'
 KEY_ADD_IDENTIFIER = 'addMissingIdentifier'
 KEY_PREVIEW = 'preview'
 
+# "Extract story status from anthology" -- a separate action/tab, own
+# independent prefs (including its own destination column, which can and
+# probably should differ from Mode 1's Saved Metadata column).
+KEY_ANTHOLOGY_DEST_COLUMN = 'anthologyDestColumn'
+KEY_ANTHOLOGY_OVERWRITE = 'anthologyOverwrite'
+KEY_ANTHOLOGY_PREVIEW = 'anthologyPreview'
+
 DEFAULT_STORE_VALUES = {
     # Mode 1 (Saved Metadata column, for FanFicFare's own "Update Calibre
     # Metadata from Saved Metadata Column" action) defaults ON -- it only
@@ -54,6 +61,10 @@ DEFAULT_STORE_VALUES = {
 
     KEY_ADD_IDENTIFIER: True,
     KEY_PREVIEW: True,
+
+    KEY_ANTHOLOGY_DEST_COLUMN: '',
+    KEY_ANTHOLOGY_OVERWRITE: False,
+    KEY_ANTHOLOGY_PREVIEW: True,
 }
 
 # Always prefix with 'plugins/' so this doesn't collide with a core calibre
@@ -80,6 +91,12 @@ def get_prefs():
 
 
 class ConfigWidget(QWidget):
+    """Two tabs, kept deliberately separate (not just spaced/divided)
+    since they're two unrelated actions sharing one settings dialog:
+    "Extraction" (the main Extract Metadata action's 3 modes, unchanged)
+    and "Anthology Status" (the "Extract story status from anthology"
+    action, added later -- explicitly not crammed into the first tab)."""
+
     def __init__(self, plugin_action):
         QWidget.__init__(self)
         self.plugin_action = plugin_action
@@ -88,8 +105,17 @@ class ConfigWidget(QWidget):
         prefs = get_prefs()
         custom_columns = self.gui.library_view.model().custom_columns
 
-        layout = QVBoxLayout(self)
-        self.setLayout(layout)
+        outer = QVBoxLayout(self)
+        self.setLayout(outer)
+
+        tabs = QTabWidget(self)
+        tabs.addTab(self._build_extraction_tab(prefs, custom_columns), 'Extraction')
+        tabs.addTab(self._build_anthology_tab(prefs, custom_columns), 'Anthology Status')
+        outer.addWidget(tabs)
+
+    def _build_extraction_tab(self, prefs, custom_columns):
+        tab = QWidget(self)
+        layout = QVBoxLayout(tab)
 
         layout.addWidget(self._build_mode1_group(prefs, custom_columns))
         layout.addSpacing(GROUP_SPACING)
@@ -99,7 +125,7 @@ class ConfigWidget(QWidget):
         layout.addSpacing(GROUP_SPACING)
 
         self.add_identifier = QCheckBox(
-            'Add missing story-URL identifier', self)
+            'Add missing story-URL identifier', tab)
         self.add_identifier.setToolTip(
             "FanFicFare needs a recognized story URL (Calibre's 'url' or "
             "'uri' identifier) to pick the right site adapter when it reads "
@@ -110,7 +136,7 @@ class ConfigWidget(QWidget):
         self.add_identifier.setChecked(prefs[KEY_ADD_IDENTIFIER])
         layout.addWidget(self.add_identifier)
 
-        self.preview = QCheckBox('Preview before writing', self)
+        self.preview = QCheckBox('Preview before writing', tab)
         self.preview.setToolTip(
             "Show a summary of everything that would be written -- across "
             "whichever modes are enabled above -- for review before "
@@ -119,6 +145,61 @@ class ConfigWidget(QWidget):
         layout.addWidget(self.preview)
 
         layout.addStretch(1)
+        return tab
+
+    def _build_anthology_tab(self, prefs, custom_columns):
+        tab = QWidget(self)
+        layout = QVBoxLayout(tab)
+
+        intro = QLabel(
+            'Settings for the "Extract story status from anthology" action '
+            '(toolbar menu) -- recovers each individual fic\'s own '
+            "completion status from a FanFicFare-bundled anthology EPUB, "
+            "since the anthology's own aggregate status only ever says "
+            '"In-Progress" if any one included fic is unfinished, with no '
+            'way to tell which one.', tab)
+        intro.setWordWrap(True)
+        layout.addWidget(intro)
+        layout.addSpacing(GROUP_SPACING)
+
+        col_row = QHBoxLayout()
+        label = QLabel('Destination Column:')
+        tooltip = (
+            'The custom column to write the per-fic status breakdown into. '
+            'Must be a Long Text column. Can be the same column as the '
+            'Saved Metadata Column on the Extraction tab, or a different '
+            'one.\n(Long Text columns only.)'
+        )
+        label.setToolTip(tooltip)
+        col_row.addWidget(label)
+
+        self.anthology_dest_column = QComboBox(tab)
+        self.anthology_dest_column.setToolTip(tooltip)
+        self.anthology_dest_column.addItem('', '')
+        for key, column in sorted(custom_columns.items()):
+            if column['datatype'] == 'comments':
+                self.anthology_dest_column.addItem(column['name'], key)
+        idx = self.anthology_dest_column.findData(prefs[KEY_ANTHOLOGY_DEST_COLUMN])
+        self.anthology_dest_column.setCurrentIndex(idx if idx >= 0 else 0)
+        col_row.addWidget(self.anthology_dest_column)
+        layout.addLayout(col_row)
+
+        self.anthology_overwrite = QCheckBox('Overwrite existing column value', tab)
+        self.anthology_overwrite.setToolTip(
+            "If unchecked, books whose destination column already has a "
+            "value are skipped rather than overwritten.")
+        self.anthology_overwrite.setChecked(prefs[KEY_ANTHOLOGY_OVERWRITE])
+        layout.addWidget(self.anthology_overwrite)
+
+        self.anthology_preview = QCheckBox('Preview before writing', tab)
+        self.anthology_preview.setToolTip(
+            "Show the per-fic breakdown for review before writing anything. "
+            "Non-anthology books show up unchecked with an explanatory note.")
+        self.anthology_preview.setChecked(prefs[KEY_ANTHOLOGY_PREVIEW])
+        layout.addWidget(self.anthology_preview)
+
+        layout.addStretch(1)
+        return tab
 
     def _build_mode1_group(self, prefs, custom_columns):
         group = QGroupBox('Save all extracted metadata', self)
@@ -244,4 +325,8 @@ class ConfigWidget(QWidget):
         prefs[KEY_COLUMN_MAPPING] = self.column_mapping
         prefs[KEY_ADD_IDENTIFIER] = self.add_identifier.isChecked()
         prefs[KEY_PREVIEW] = self.preview.isChecked()
+        prefs[KEY_ANTHOLOGY_DEST_COLUMN] = self.anthology_dest_column.itemData(
+            self.anthology_dest_column.currentIndex())
+        prefs[KEY_ANTHOLOGY_OVERWRITE] = self.anthology_overwrite.isChecked()
+        prefs[KEY_ANTHOLOGY_PREVIEW] = self.anthology_preview.isChecked()
         plugin_prefs[STORE_NAME] = prefs

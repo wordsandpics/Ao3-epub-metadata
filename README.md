@@ -94,10 +94,31 @@ Independent of all three modes:
 
 ## Usage
 
-Select one or more books with an EPUB, click the **Extract Metadata** toolbar button, review the
-preview, and confirm. If you're using mode 1 (Saved Metadata Column), follow up by running
-FanFicFare's **Update Calibre Metadata from Saved Metadata Column** action. If you're only using
-modes 2/3, your library fields are already updated — no further action needed.
+Select one or more books with an EPUB, click the toolbar button (or use the dropdown arrow next
+to it for the options below), review the preview, and confirm. If you're using mode 1 (Saved
+Metadata Column), follow up by running FanFicFare's **Update Calibre Metadata from Saved Metadata
+Column** action. If you're only using modes 2/3, your library fields are already updated — no
+further action needed.
+
+The toolbar dropdown has three options:
+- **Extract Metadata** — the main action described above.
+- **Extract story status from anthology** — see below.
+- **Configure…** — opens this plugin's settings directly, without needing to go through
+  Preferences → Plugins first.
+
+## Anthology status
+
+FanFicFare can bundle several separately-downloaded fics into one EPUB (via `epubmerge`) — e.g. every fic in an AO3 series. The bundle's own metadata only ever carries **one** completion status for the whole thing, manually set by the author,  with no way to tell if it's an unfinished anthology made up of completed works, or having incomplete works too. This action recovers each individual fic's own status instead, by reading each one's front-matter page inside the bundle (the same page FanFicFare itself generates per fic), and writes a per-fic breakdown into a column you choose:
+
+```
+6/7 fics complete.
+
+1. In Arduis Fidelis 1 -- Completed (12 ch, 17,673 words)
+...
+7. In Arduis Fidelis 7 -- In-Progress (110 ch, 300,469 words)
+```
+
+This is a separate, independent action from the main metadata extraction above — it has its own settings (its own destination column, overwrite, and preview toggles) on the **Anthology Status** tab of this plugin's configuration. Running it on a book that isn't an epubmerge-bundled anthology just skips that book with an explanatory note rather than erroring, so you can select a mix of anthologies and regular books at once.
 
 ## Development
 

@@ -16,12 +16,16 @@ import sys
 import unittest
 import xml.etree.ElementTree as ET
 from pathlib import Path
+from zipfile import ZipFile
 
 TESTS_DIR = Path(__file__).resolve().parent
 REPO_ROOT = TESTS_DIR.parent
 sys.path.insert(0, str(TESTS_DIR / 'calibre_stub'))
 sys.path.insert(0, str(REPO_ROOT))
 
+from extract_epub_metadata.anthology import (  # noqa: E402
+    extract_fic_records, format_summary, is_anthology,
+)
 from extract_epub_metadata.calibre_fields import (  # noqa: E402
     STATUS_COMPLETE_KEY, compatible_columns_for_key, compute_custom_column_values,
     compute_standard_fields, field_label, permitted_keys_for_datatype,
@@ -31,6 +35,7 @@ from extract_epub_metadata.serialize import serialize_saved_metadata  # noqa: E4
 
 EPUB_FIXTURE = TESTS_DIR / 'fixtures' / 'johnlock_a_random_day.epub'
 GOLDEN_HTML_FIXTURE = TESTS_DIR / 'fixtures' / 'johnlock_saved_metadata_column.html'
+ANTHOLOGY_FIXTURE = TESTS_DIR / 'fixtures' / 'anthology_in_arduis_fidelis.epub'
 
 # Fields we intend to populate for this fic (see plan's "Field population
 # strategy" -- excludes live-fetch-only stats like hits/kudos/comments,
@@ -389,6 +394,73 @@ class CustomColumnMappingTest(unittest.TestCase):
     def test_field_label_falls_back_to_raw_key(self):
         self.assertEqual(field_label('numWords'), 'Word Count')
         self.assertEqual(field_label('not_a_real_key'), 'not_a_real_key')
+
+
+class AnthologyTest(unittest.TestCase):
+    """"Extract story status from anthology": a second, independent action
+    (see anthology.py's module docstring) -- verified against a real
+    epubmerge-produced anthology of 7 fics, 6 Completed + 1 In-Progress."""
+
+    @classmethod
+    def setUpClass(cls):
+        with ZipFile(ANTHOLOGY_FIXTURE) as zf:
+            cls.is_anthology = is_anthology(zf)
+            cls.records = extract_fic_records(zf)
+
+    def test_detects_anthology(self):
+        self.assertTrue(self.is_anthology)
+
+    def test_recovers_all_seven_fics(self):
+        self.assertEqual(len(self.records), 7)
+
+    def test_per_fic_status_and_chapters_match_verified_findings(self):
+        # fics 1-6 Completed, fic 7 In-Progress -- matches the research
+        # findings recorded in the plan, byte for byte.
+        expected = [
+            ('Completed', 12), ('Completed', 18), ('Completed', 18),
+            ('Completed', 37), ('Completed', 56), ('Completed', 93),
+            ('In-Progress', 110),
+        ]
+        actual = [(r.get('status'), r.get('numChapters')) for r in self.records]
+        self.assertEqual(actual, expected)
+
+    def test_only_fic_seven_is_incomplete(self):
+        incomplete = [r for r in self.records if r.get('status') != 'Completed']
+        self.assertEqual(len(incomplete), 1)
+        self.assertEqual(incomplete[0]['title'], 'In Arduis Fidelis 7')
+
+    def test_fic_seven_missing_published_date_handled_gracefully(self):
+        # the in-progress fic's title page omits "Published" entirely --
+        # confirmed against the real fixture, not assumed. Must not error,
+        # and must not fabricate a value.
+        fic7 = self.records[6]
+        self.assertNotIn('datePublished', fic7)
+        self.assertIn('dateUpdated', fic7)
+
+    def test_story_urls_recovered_per_fic(self):
+        urls = [r.get('storyUrl') for r in self.records]
+        self.assertEqual(urls, [
+            'https://archiveofourown.org/works/6194833',
+            'https://archiveofourown.org/works/6229315',
+            'https://archiveofourown.org/works/6301045',
+            'https://archiveofourown.org/works/6407956',
+            'https://archiveofourown.org/works/7322257',
+            'https://archiveofourown.org/works/9552893',
+            'https://archiveofourown.org/works/16979565',
+        ])
+
+    def test_format_summary_reports_six_of_seven(self):
+        summary = format_summary(self.records)
+        self.assertIn('6/7 fics complete.', summary)
+        self.assertIn('7. In Arduis Fidelis 7 -- In-Progress', summary)
+
+    def test_non_anthology_epub_is_not_detected(self):
+        with ZipFile(EPUB_FIXTURE) as zf:
+            self.assertFalse(is_anthology(zf))
+            self.assertEqual(extract_fic_records(zf), [])
+
+    def test_format_summary_empty_for_no_records(self):
+        self.assertEqual(format_summary([]), '')
 
 
 if __name__ == '__main__':

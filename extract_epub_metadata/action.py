@@ -1,14 +1,20 @@
+from zipfile import ZipFile
+
 from calibre.gui2 import error_dialog, info_dialog
 from calibre.gui2.actions import InterfaceAction
 from qt.core import QMenu
 
+from calibre_plugins.extract_epub_metadata.anthology import (
+    AnthologyResult, extract_fic_records, format_summary, is_anthology,
+)
 from calibre_plugins.extract_epub_metadata.calibre_fields import (
     apply_custom_column_mapping, apply_standard_fields,
     compute_custom_column_values, compute_standard_fields,
 )
 from calibre_plugins.extract_epub_metadata.common_utils import plugin_icon
 from calibre_plugins.extract_epub_metadata.config import (
-    KEY_ADD_IDENTIFIER, KEY_COLUMN_MAPPING, KEY_DEST_COLUMN, KEY_MODE1_ENABLED,
+    KEY_ADD_IDENTIFIER, KEY_ANTHOLOGY_DEST_COLUMN, KEY_ANTHOLOGY_OVERWRITE,
+    KEY_ANTHOLOGY_PREVIEW, KEY_COLUMN_MAPPING, KEY_DEST_COLUMN, KEY_MODE1_ENABLED,
     KEY_MODE2_ENABLED, KEY_MODE2_OVERWRITE, KEY_MODE3_ENABLED, KEY_OVERWRITE,
     KEY_PREVIEW, get_prefs,
 )
@@ -36,6 +42,7 @@ class ExtractEpubMetadataAction(InterfaceAction):
         # settings are reachable without first running an extraction.
         self.menu = QMenu(self.gui)
         self.menu.addAction('Extract Metadata', self.run)
+        self.menu.addAction('Extract story status from anthology', self.run_anthology_report)
         self.menu.addAction('Configure…', self.show_configuration)
         self.qaction.setMenu(self.menu)
 
@@ -186,4 +193,92 @@ class ExtractEpubMetadataAction(InterfaceAction):
 
             if wrote_something:
                 written += 1
+        return written
+
+    # --- "Extract story status from anthology" -- a second, independent
+    # action/pipeline. Does not call extract_fields()/mapping.py at all;
+    # see anthology.py's module docstring for why. ---
+
+    def run_anthology_report(self):
+        prefs = get_prefs()
+        dest_column = prefs[KEY_ANTHOLOGY_DEST_COLUMN]
+
+        db = self.gui.current_db.new_api
+        custom_columns = self.gui.library_view.model().custom_columns
+
+        if not dest_column or dest_column not in custom_columns or \
+                custom_columns[dest_column]['datatype'] != 'comments':
+            return error_dialog(
+                self.gui, 'No destination column configured',
+                'Choose a Long Text ("comments") custom column on the '
+                '"Anthology Status" tab of this plugin\'s settings '
+                '(Preferences → Plugins) before running it.',
+                show=True)
+
+        book_ids = self.gui.library_view.get_selected_ids()
+        if not book_ids:
+            return error_dialog(
+                self.gui, 'No books selected',
+                'Select one or more books first.', show=True)
+
+        results = [self._process_anthology_book(db, book_id, dest_column)
+                   for book_id in book_ids]
+
+        if prefs[KEY_ANTHOLOGY_PREVIEW]:
+            dialog = PreviewDialog(self.gui, results)
+            if dialog.exec() != PreviewDialog.DialogCode.Accepted:
+                return
+            selected = dialog.selected_results()
+        else:
+            selected = [r for r in results if not r.error]
+
+        written = self._write_anthology_results(
+            db, dest_column, selected, prefs[KEY_ANTHOLOGY_OVERWRITE])
+
+        info_dialog(
+            self.gui, 'Extract Epub Metadata',
+            'Updated %d of %d selected book(s).' % (written, len(book_ids)),
+            show=True)
+
+    def _process_anthology_book(self, db, book_id, dest_column):
+        mi = db.get_metadata(book_id)
+        title = mi.title or ('Book %s' % book_id)
+
+        if not db.has_format(book_id, 'EPUB'):
+            return AnthologyResult(book_id, title,
+                                    error='No EPUB format available for this book.')
+
+        try:
+            stream = db.format(book_id, 'EPUB', as_file=True)
+            with ZipFile(stream) as zf:
+                if not is_anthology(zf):
+                    return AnthologyResult(
+                        book_id, title,
+                        error='Not an anthology (no epubmerge marker found) '
+                              '-- nothing to summarize.')
+                records = extract_fic_records(zf)
+        except Exception as e:
+            return AnthologyResult(book_id, title,
+                                    error='Failed to process anthology: %s' % e)
+
+        if not records:
+            return AnthologyResult(book_id, title,
+                                    error='No fics recovered from this anthology.')
+
+        existing_value = db.field_for(dest_column, book_id, default_value='') or None
+
+        return AnthologyResult(
+            book_id, title, records=records, summary=format_summary(records),
+            existing_column_value=existing_value,
+        )
+
+    def _write_anthology_results(self, db, dest_column, results, overwrite):
+        written = 0
+        for result in results:
+            if result.error:
+                continue
+            if result.existing_column_value and not overwrite:
+                continue
+            db.set_field(dest_column, {result.book_id: result.summary})
+            written += 1
         return written
