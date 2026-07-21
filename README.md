@@ -58,14 +58,18 @@ regardless of which modes you use.
 
 ## Installing
 
+Download the latest `extract_epub_metadata-*.zip` from the
+[Releases page](https://github.com/wordsandpics/Ao3-epub-metadata/releases), then in the Calibre
+GUI: Preferences → Plugins → Load plugin from file, and pick the zip you downloaded.
+
+If you're working from a clone of this repository instead:
+
 ```sh
 # from this directory
 /Applications/calibre.app/Contents/MacOS/calibre-customize -b extract_epub_metadata
 ```
 
-(On Linux/Windows, use whichever `calibre-customize` is on your `PATH`.) Or, in the Calibre GUI:
-Preferences → Plugins → Load plugin from file, pointing at a zipped copy of the
-`extract_epub_metadata/` directory.
+(On Linux/Windows, use whichever `calibre-customize` is on your `PATH`.)
 
 ## Configuring
 
@@ -119,6 +123,10 @@ FanFicFare can bundle several separately-downloaded fics into one EPUB (via `epu
 ```
 
 This is a separate, independent action from the main metadata extraction above — it has its own settings (its own destination column, overwrite, and preview toggles) on the **Anthology Status** tab of this plugin's configuration. Running it on a book that isn't an epubmerge-bundled anthology just skips that book with an explanatory note rather than erroring, so you can select a mix of anthologies and regular books at once.
+
+## Changelog
+
+See [CHANGELOG.md](CHANGELOG.md).
 
 ## Development
 
