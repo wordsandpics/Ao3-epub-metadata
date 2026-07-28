@@ -14,9 +14,9 @@ from calibre_plugins.extract_epub_metadata.calibre_fields import (
 from calibre_plugins.extract_epub_metadata.common_utils import plugin_icon
 from calibre_plugins.extract_epub_metadata.config import (
     KEY_ADD_IDENTIFIER, KEY_ANTHOLOGY_DEST_COLUMN, KEY_ANTHOLOGY_OVERWRITE,
-    KEY_ANTHOLOGY_PREVIEW, KEY_COLUMN_MAPPING, KEY_DEST_COLUMN, KEY_MODE1_ENABLED,
-    KEY_MODE2_ENABLED, KEY_MODE2_OVERWRITE, KEY_MODE3_ENABLED, KEY_OVERWRITE,
-    KEY_PREVIEW, get_prefs,
+    KEY_ANTHOLOGY_PREVIEW, KEY_ANTHOLOGY_SHOW_CONFIRMATION, KEY_COLUMN_MAPPING,
+    KEY_DEST_COLUMN, KEY_MODE1_ENABLED, KEY_MODE2_ENABLED, KEY_MODE2_OVERWRITE,
+    KEY_MODE3_ENABLED, KEY_OVERWRITE, KEY_PREVIEW, KEY_SHOW_CONFIRMATION, get_prefs,
 )
 from calibre_plugins.extract_epub_metadata.dialogs import BookResult, PreviewDialog
 from calibre_plugins.extract_epub_metadata.mapping import extract_fields
@@ -102,10 +102,11 @@ class ExtractEpubMetadataAction(InterfaceAction):
 
         written = self._write_results(db, dest_column, selected, mode1_on, mode2_on, mode3_on)
 
-        info_dialog(
-            self.gui, 'Extract Epub Metadata',
-            'Updated %d of %d selected book(s).' % (written, len(book_ids)),
-            show=True)
+        if prefs[KEY_SHOW_CONFIRMATION]:
+            info_dialog(
+                self.gui, 'Extract Epub Metadata',
+                'Updated %d of %d selected book(s).' % (written, len(book_ids)),
+                show=True)
 
     def _process_book(self, db, book_id, dest_column, prefs, mode1_on, mode2_on,
                        mode3_on, column_mapping, custom_columns):
@@ -235,10 +236,11 @@ class ExtractEpubMetadataAction(InterfaceAction):
         written = self._write_anthology_results(
             db, dest_column, selected, prefs[KEY_ANTHOLOGY_OVERWRITE])
 
-        info_dialog(
-            self.gui, 'Extract Epub Metadata',
-            'Updated %d of %d selected book(s).' % (written, len(book_ids)),
-            show=True)
+        if prefs[KEY_ANTHOLOGY_SHOW_CONFIRMATION]:
+            info_dialog(
+                self.gui, 'Extract Epub Metadata',
+                'Updated %d of %d selected book(s).' % (written, len(book_ids)),
+                show=True)
 
     def _process_anthology_book(self, db, book_id, dest_column):
         mi = db.get_metadata(book_id)
