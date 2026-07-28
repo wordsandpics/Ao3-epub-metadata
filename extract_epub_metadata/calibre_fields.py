@@ -28,12 +28,17 @@ against a real library.
 # extratags, genre, category, characters, ships, status -- where genre and
 # category are themselves composites (include_in_genre: genre,
 # freeformtags, ao3categories; include_in_category: category, fandoms).
-# Flattened here since we're not reimplementing the composite engine.
-# Rating and warnings are intentionally excluded, matching FFF's own
-# default (they're not part of include_subject_tags either).
+# Flattened here since we're not reimplementing the composite engine --
+# 'genre' is included directly rather than reconstructed, which is a no-op
+# for AO3/FFF-sourced books (our pipeline never synthesizes a 'genre' key
+# for those) but picks up real, distinct data for sites that report their
+# own raw genre, e.g. fanfiction.net's "Genre: Romance/Mystery" (confirmed
+# against tests/fixtures/hunted.epub). Rating and warnings are still
+# intentionally excluded, matching FFF's own default (not part of
+# include_subject_tags either).
 TAG_SOURCE_KEYS = (
     'fandoms', 'ships', 'characters', 'freeformtags', 'ao3categories',
-    'status', 'extratags',
+    'genre', 'status', 'extratags',
 )
 
 

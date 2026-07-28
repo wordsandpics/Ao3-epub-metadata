@@ -21,6 +21,11 @@ fixture (tests/fixtures/sigh_no_more.epub) where every single field past
 title/author/storyUrl was silently dropped because this shape wasn't
 recognized as a title page at all (filename has no underscore) and,
 even once detected, has zero `<b>` tags for the existing scan to find.
+
+Also recognizes fichub.net's own front-matter filename
+(OEBPS/introduction.xhtml, no <h3>/<b> at all -- confirmed against
+tests/fixtures/hunted.epub, a fanfiction.net story downloaded via
+fichub.net) -- same <p>Label: value</p> shape, scraped the same way.
 """
 import re
 
@@ -37,7 +42,7 @@ def _is_titlepage(root, path):
     cls = (body.get('class') or '') if body is not None else ''
     lowered = path.lower()
     return ('fff_titlepage' in cls.split() or 'title_page' in lowered
-            or 'titlepage' in lowered)
+            or 'titlepage' in lowered or 'introduction' in lowered)
 
 
 def extract_fff_titlepage(zf):

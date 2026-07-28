@@ -9,6 +9,12 @@ A Calibre plugin that extracts [FanFicFare](https://github.com/JimmXinu/FanFicFa
 metadata from an EPUB already in your library when FanFicFare can't (re)download the story—for
 example because of Cloudflare, deleted works, manual downloads, or archived copies.
 
+This plugin is built and tested primarily around [Archive of Our Own](https://archiveofourown.org)
+downloads. fanfiction.net EPUBs from [fichub.net](https://fichub.net) or the
+[WebToEpub](https://github.com/dteviot/WebToEpub) browser extension are also explicitly supported.
+Other sites and tools may work too — the extraction degrades gracefully rather than erroring out —
+but haven't been tested, so your mileage may vary.
+
 It reads the EPUB and recovers as much metadata as possible (title, author, fandom, relationships,
 characters, tags, rating, warnings, word/chapter counts, dates, story URL, etc.), then does
 whichever of the following you've enabled:
@@ -38,15 +44,33 @@ present in the EPUB itself. And with only mode 1 enabled (the default), it never
 library's Title/Tags/Comments/etc. directly; it just reconstructs FanFicFare's Saved Metadata
 column so FFF can do its thing. 
 
+## Known limitations
+
+This is early and has mostly been tested against one real example per source/tool combination
+(AO3 direct, AO3 via fichub.net, fanfiction.net via fichub.net, fanfiction.net via WebToEpub) —
+treat it as a beta looking for real-world edge cases, not a finished, broadly-tested tool.
+
+- Crossover fics (multiple fandoms) downloaded from fanfiction.net via WebToEpub will only get
+  the *last* fandom in the site's breadcrumb — there's no fixture to verify multi-fandom handling
+  against yet, so rather than guess, only the single-fandom case is handled.
+- Sites/tools other than the ones above haven't been tested at all. Extraction is designed to
+  degrade gracefully (skip a field rather than guess at it) when it doesn't recognize a page's
+  layout, but "graceful" can still mean a field silently isn't recovered rather than erroring
+  loudly — always check the preview before writing.
+
 ## How it works
 
 Metadata is extracted from multiple sources, preferring the most complete source first:
 
-1. Standard EPUB/OPF metadata (title, authors, language, description, tags, `dc:source`).
-2. A FanFicFare-generated title page, if the EPUB was originally produced by FanFicFare.
+1. Standard EPUB/OPF metadata (title, authors, language, description, an explicit story-URL
+   identifier, `dc:source`).
+2. A title page, if the EPUB has one — either FanFicFare's own generated page, or a
+   fichub.net-style front-matter page (a similar but not identical layout).
 3. AO3's own native front-matter preface, if the EPUB was downloaded directly from
    [Archive of Our Own](https://archiveofourown.org).
-4. A generic scan for the first recognized fanfic-site link, as a last-resort way to recover the
+4. fanfiction.net's own native story-info page, as saved verbatim by the WebToEpub browser
+   extension.
+5. A generic scan for the first recognized fanfic-site link, as a last-resort way to recover the
    story URL.
 
 Earlier sources take precedence; later sources only fill in missing values.
@@ -95,6 +119,8 @@ Independent of all three modes:
   book doesn't already have one.
 - **Preview before writing** — on by default; review everything that would be written, across
   whichever modes are enabled, before anything is written.
+- **Show confirmation after writing** — on by default; shows a small popup summarizing how many
+  books were updated. Turn off to skip it and return straight to Calibre.
 
 ## Usage
 
@@ -122,7 +148,7 @@ FanFicFare can bundle several separately-downloaded fics into one EPUB (via `epu
 7. In Arduis Fidelis 7 -- In-Progress (110 ch, 300,469 words)
 ```
 
-This is a separate, independent action from the main metadata extraction above — it has its own settings (its own destination column, overwrite, and preview toggles) on the **Anthology Status** tab of this plugin's configuration. Running it on a book that isn't an epubmerge-bundled anthology just skips that book with an explanatory note rather than erroring, so you can select a mix of anthologies and regular books at once.
+This is a separate, independent action from the main metadata extraction above — it has its own settings (its own destination column, overwrite, preview, and show-confirmation toggles) on the **Anthology Status** tab of this plugin's configuration. Running it on a book that isn't an epubmerge-bundled anthology just skips that book with an explanatory note rather than erroring, so you can select a mix of anthologies and regular books at once.
 
 ## Changelog
 

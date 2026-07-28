@@ -288,6 +288,202 @@ class UnknownChapterTotalTest(unittest.TestCase):
         self.assertEqual(fields['numWords'], 1234)
 
 
+class FfnetViaFichubTest(unittest.TestCase):
+    """A fanfiction.net story downloaded via fichub.net (not FanFicFare, not
+    a direct AO3 download) -- a third front-matter shape/tool, on top of the
+    two fichub-for-AO3 fixtures above. Its "introduction.xhtml" filename
+    matched neither existing title-page pattern, and its "Rated: X -
+    Language: Y - ... - Reviews: N - Favs: N - Follows: N" line packs
+    several fields into one <p>, which the existing one-label-per-<p> scan
+    couldn't see at all. Regression fixture for both gaps."""
+
+    EPUB_FIXTURE = TESTS_DIR / 'fixtures' / 'hunted.epub'
+
+    def test_recovers_fields_from_composite_stats_line(self):
+        fields, sources = extract_fields(str(self.EPUB_FIXTURE))
+
+        self.assertEqual(fields.get('rating'), 'Fiction M')
+        self.assertEqual(fields.get('language'), 'English')
+        self.assertEqual(fields.get('genre'), ['Romance/Mystery'])
+        self.assertEqual(fields.get('characters'), ['Draco M.', 'Hermione G.'])
+        for key in ('rating', 'language', 'genre', 'characters'):
+            self.assertEqual(sources.get(key), 'fff_titlepage')
+
+    def test_live_engagement_stats_not_fabricated(self):
+        # Reviews/Favs/Follows are live-only stats, same treatment as
+        # AO3's hits/kudos/bookmarks -- scraped but deliberately unmapped.
+        fields, _sources = extract_fields(str(self.EPUB_FIXTURE))
+
+        for key in fields:
+            self.assertNotIn(key.lower(), ('reviews', 'favs', 'follows'))
+
+    def test_status_normalized_from_lowercase(self):
+        fields, _sources = extract_fields(str(self.EPUB_FIXTURE))
+
+        self.assertEqual(fields.get('status'), 'Completed')
+
+    def test_chapters_and_words_and_dates(self):
+        fields, _sources = extract_fields(str(self.EPUB_FIXTURE))
+
+        self.assertEqual(fields.get('numChapters'), 36)
+        self.assertEqual(fields.get('numWords'), 191497)
+        self.assertIsInstance(fields.get('datePublished'), datetime.datetime)
+        self.assertIsInstance(fields.get('dateUpdated'), datetime.datetime)
+
+    def test_story_id_recovered_from_ffnet_url_shape(self):
+        fields, _sources = extract_fields(str(self.EPUB_FIXTURE))
+
+        self.assertEqual(fields.get('storyId'), '5853767')
+
+    def test_author_html_has_no_broken_empty_link(self):
+        # No author URL is recoverable for this site -- authorHTML should
+        # be the plain name, not <a href=''>...</a>.
+        fields, _sources = extract_fields(str(self.EPUB_FIXTURE))
+
+        self.assertEqual(fields.get('authorHTML'), 'Bex-chan')
+
+    def test_genre_flows_into_mode2_tags(self):
+        # 'genre' is included in TAG_SOURCE_KEYS -- a no-op for AO3/FFF-
+        # sourced books (see ComputeStandardFieldsTest below), but this
+        # site reports its own distinct raw genre, worth surfacing.
+        fields, _sources = extract_fields(str(self.EPUB_FIXTURE))
+        computed = compute_standard_fields(fields)
+
+        self.assertIn('Romance/Mystery', computed['tags'])
+
+    def test_composite_splitter_leaves_non_matching_values_untouched(self):
+        # Direct unit test of the safety fallback: a value with ' - ' in it
+        # but no embedded 'Label: value' segments must come back unchanged.
+        from extract_epub_metadata.mapping import _split_composite_label_value
+
+        tags = 'Alternate Universe - No Powers, Professor Getou Suguru'
+        head, sub_entries = _split_composite_label_value(tags)
+
+        self.assertEqual(head, tags)
+        self.assertEqual(sub_entries, {})
+
+
+class FfnetViaWebToEpubTest(unittest.TestCase):
+    """A fanfiction.net story downloaded via the WebToEpub browser
+    extension (https://github.com/dteviot/WebToEpub) -- a fourth distinct
+    front-matter shape, on top of FFF's own title page, AO3's native
+    preface, and fichub.net's paraphrased pages above. Unlike fichub, this
+    is fanfiction.net's own website HTML (a `<div id="profile_top">`)
+    scraped verbatim, including a long-standing "story stats" line where
+    language/genre/characters are unlabeled positional values rather than
+    "Label: value" pairs. Also the fixture that exposed a real,
+    pre-existing bug: WebToEpub writes one <dc:source> per chapter plus
+    one for the cover image, so blindly taking the first <dc:source>
+    (what extract_fields() used to do) picked the cover image URL."""
+
+    EPUB_FIXTURE = TESTS_DIR / 'fixtures' / 'isolation.epub'
+
+    def test_story_url_is_not_the_cover_image(self):
+        # Regression test for the pre-existing dc:source bug -- an
+        # explicit url/uri identifier is now preferred over dc:source.
+        fields, sources = extract_fields(str(self.EPUB_FIXTURE))
+
+        self.assertEqual(fields.get('storyUrl'),
+                          'https://www.fanfiction.net/s/6291747/1/Isolation')
+        self.assertNotIn('image', fields['storyUrl'])
+        self.assertEqual(sources.get('storyUrl'), 'opf')
+
+    def test_recovers_unlabeled_positional_fields(self):
+        fields, sources = extract_fields(str(self.EPUB_FIXTURE))
+
+        self.assertEqual(fields.get('language'), 'English')
+        self.assertEqual(fields.get('genre'), ['Romance/Angst'])
+        self.assertEqual(fields.get('characters'), ['Hermione G.', 'Draco M.'])
+        for key in ('language', 'genre', 'characters', 'rating', 'numChapters'):
+            self.assertEqual(sources.get(key), 'ffnet_infopage')
+
+    def test_fandom_from_breadcrumb(self):
+        # The fandom isn't in the stats line at all -- it's fanfiction.net's
+        # own breadcrumb ("Books > Harry Potter"), a sibling of
+        # #profile_top rather than nested inside it.
+        fields, sources = extract_fields(str(self.EPUB_FIXTURE))
+
+        self.assertEqual(fields.get('fandoms'), ['Harry Potter'])
+        self.assertEqual(sources.get('fandoms'), 'ffnet_infopage')
+
+    def test_fandom_also_populates_category_for_fff_roundtrip(self):
+        # Regression test for a real bug report: FanFicFare's own [www.
+        # fanfiction.net] config has no include_in_category override (only
+        # [archiveofourown.org] does, with 'category,fandoms'), so its
+        # global default include_subject_tags reads the *raw* 'category'
+        # key directly for Tags -- never 'fandoms', which is an AO3-only
+        # concept in FFF's own vocabulary. Populating only 'fandoms' meant
+        # FanFicFare's "Update Calibre Metadata from Saved Metadata
+        # Column" action silently dropped the fandom from Tags. Verified
+        # directly against FFF's own installed Story.getSubjectTags() via
+        # calibre-debug, not just this fields-dict-level check.
+        fields, sources = extract_fields(str(self.EPUB_FIXTURE))
+
+        self.assertEqual(fields.get('category'), ['Harry Potter'])
+        self.assertEqual(sources.get('category'), 'ffnet_infopage')
+
+    def test_status_normalized_from_native_casing(self):
+        fields, _sources = extract_fields(str(self.EPUB_FIXTURE))
+
+        self.assertEqual(fields.get('status'), 'Completed')
+
+    def test_story_id_from_explicit_id_label(self):
+        fields, _sources = extract_fields(str(self.EPUB_FIXTURE))
+
+        self.assertEqual(fields.get('storyId'), '6291747')
+
+    def test_author_id_and_url_recovered(self):
+        fields, _sources = extract_fields(str(self.EPUB_FIXTURE))
+
+        self.assertEqual(fields.get('authorId'), ['491287'])
+        self.assertEqual(fields.get('authorUrl'),
+                          ['https://www.fanfiction.net/u/491287/Bex-chan'])
+
+    def test_dates_use_native_ffnet_format(self):
+        fields, _sources = extract_fields(str(self.EPUB_FIXTURE))
+
+        self.assertEqual(fields.get('datePublished'), datetime.datetime(2010, 9, 2, 14, 43, 45))
+        self.assertEqual(fields.get('dateUpdated'), datetime.datetime(2020, 1, 5, 3, 12, 37))
+
+    def test_description_is_just_the_summary(self):
+        # Regression test: find_all() yields the passed-in element as well
+        # as its descendants, so the naive "longest <div>" search first
+        # matched profile_top itself (title/byline/stats and all) rather
+        # than the actual summary div nested inside it.
+        fields, _sources = extract_fields(str(self.EPUB_FIXTURE))
+
+        description = fields.get('description', '')
+        self.assertTrue(description.startswith("He can't leave the room."))
+        self.assertNotIn('Rated:', description)
+        self.assertNotIn('By:', description)
+
+    def test_live_engagement_stats_not_fabricated(self):
+        fields, _sources = extract_fields(str(self.EPUB_FIXTURE))
+
+        for key in fields:
+            self.assertNotIn(key.lower(), ('reviews', 'favs', 'follows'))
+
+    def test_unlabeled_fields_skipped_when_count_is_ambiguous(self):
+        # Direct unit test of the safety fallback: language/genre/
+        # characters are only assigned when exactly three unlabeled
+        # segments are found between "Rated: ..." and the next label --
+        # otherwise we can't tell which slot is missing, so all three are
+        # left unset rather than risk a wrong assignment.
+        from extract_epub_metadata.extractors.ffnet_infopage import _split_stats_line
+
+        # only two unlabeled segments (e.g. no genre tagged) -- ambiguous
+        labeled, unlabeled = _split_stats_line(
+            'Rated: Fiction T - English - Harry P. - Chapters: 5 - Words: 1,000 - Status: Complete - id: 123')
+        self.assertEqual(len(unlabeled), 2)
+        self.assertNotIn('language', labeled)
+        self.assertNotIn('genre', labeled)
+        self.assertNotIn('characters', labeled)
+        # labeled fields are still recovered regardless
+        self.assertEqual(labeled.get('rating'), 'Fiction T')
+        self.assertEqual(labeled.get('numChapters'), '5')
+        self.assertEqual(labeled.get('storyId'), '123')
+
+
 class ComputeStandardFieldsTest(unittest.TestCase):
     """Mode 2 (direct-to-Calibre-fields): compute_standard_fields() is pure
     and needs no live Calibre, unlike apply_standard_fields()/
@@ -308,6 +504,10 @@ class ComputeStandardFieldsTest(unittest.TestCase):
     def test_tags_composite_matches_fff_defaults(self):
         # FFF's default AO3 Tags composition: fandoms + ships + characters +
         # freeformtags + ao3categories + status -- NOT rating/warnings.
+        # ('genre' is also in TAG_SOURCE_KEYS, but this AO3-sourced fixture
+        # never populates a 'genre' key, so it's a no-op here -- see
+        # FfnetViaFichubTest.test_genre_flows_into_mode2_tags for where it
+        # actually contributes.)
         tags = set(self.computed['tags'])
         self.assertIn('Sherlock (BBC TV 2010)', tags)  # fandoms
         self.assertIn('Sherlock Holmes/John Watson', tags)  # ships

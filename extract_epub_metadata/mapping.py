@@ -6,11 +6,12 @@ also computes at read-time. Produces the `fields` dict serialize.py turns
 into the Saved Metadata column value.
 
 Tier order (per the plan): OPF baseline, FFF title page, AO3 front matter,
-generic link-scan fallback. In practice tiers 2 and 3 are mutually
-exclusive (a given EPUB has either FFF's title page or AO3's native
-preface, not both), so their relative order rarely matters -- OPF is kept
-first because it's the most universally reliable source for
-title/authors/language/description when present.
+fanfiction.net's own native info page (as scraped verbatim by WebToEpub),
+generic link-scan fallback. In practice tiers 2/3/3b are mutually
+exclusive (a given EPUB has at most one of FFF's title page, AO3's native
+preface, or fanfiction.net's native info page), so their relative order
+rarely matters -- OPF is kept first because it's the most universally
+reliable source for title/authors/language/description when present.
 """
 import datetime
 import re
@@ -19,6 +20,7 @@ from zipfile import ZipFile
 
 from .extractors.ao3_frontmatter import extract_ao3_frontmatter
 from .extractors.fallback_link_scan import extract_story_url_fallback
+from .extractors.ffnet_infopage import extract_ffnet_infopage
 from .extractors.fff_titlepage import extract_fff_titlepage
 from .extractors.opf import extract_opf
 
@@ -66,7 +68,19 @@ TITLEPAGE_LABEL_TO_KEY = {
     'fandoms': 'fandoms',
     'additional tags': 'freeformtags',
     'categories': 'ao3categories',
+    # fanfiction.net's own label for the same concept as AO3/FFF's
+    # "Rating" (confirmed against tests/fixtures/hunted.epub, via
+    # fichub.net's "Rated: Fiction M - Language: ... - ..." composite
+    # line -- see _split_composite_label_value below).
+    'rated': 'rating',
 }
+
+# Deliberately no entries for 'reviews'/'favs'/'follows' -- fanfiction.net's
+# live engagement stats, same "don't fabricate a value only a live fetch
+# could keep current" treatment already applied to AO3's hits/kudos/
+# bookmarks. They still get scraped as label:value pairs by
+# _split_composite_label_value below; having no key mapping here is what
+# makes them silently dropped, no extra filtering code needed.
 
 LIST_KEYS = {
     'warnings', 'fandoms', 'ships', 'characters', 'freeformtags',
@@ -78,7 +92,16 @@ LIST_KEYS = {
 }
 
 _WORKS_URL_RE = re.compile(r'/works/(\d+)')
+# fanfiction.net's own story-URL shape, e.g. ".../s/5853767/1/Hunted"
+# (confirmed against tests/fixtures/hunted.epub).
+_FFNET_STORY_ID_RE = re.compile(r'/s/(\d+)')
 _TAG_RE = re.compile(r'<[^>]+>')
+# "Label: value" for one segment of a composite line, e.g. fanfiction.net's
+# own "Rated: Fiction M - Language: English - Genre: ... - Reviews: ..."
+# (confirmed against tests/fixtures/hunted.epub). Deliberately the same
+# shape as _PARA_LABEL_RE in fff_titlepage.py, just applied per-segment
+# here rather than per-<p>.
+_COMPOSITE_SEGMENT_RE = re.compile(r'^([A-Za-z][\w \-/]{0,30}):\s*(.+)$')
 # Total is often "?" for an ongoing fic whose final chapter count isn't
 # known yet (confirmed against tests/fixtures/crimson supernova -
 # serenadewave.epub's "Chapters: 41/?") -- status can't be derived from
@@ -89,7 +112,13 @@ _CHAPTERS_SLASH_RE = re.compile(r'^\s*(\d+)\s*/\s*(\d+|\?)\s*$')
 # datePublished/dateUpdated default to date-only "%Y-%m-%d". Both are also
 # personal.ini-configurable, so this can never be exhaustive -- see
 # _parse_date's caller for what happens when none of these match.
-_DATE_FORMATS = ('%Y-%m-%dT%H:%M:%S', '%Y-%m-%d %H:%M:%S', '%Y-%m-%d')
+_DATE_FORMATS = (
+    '%Y-%m-%dT%H:%M:%S', '%Y-%m-%d %H:%M:%S', '%Y-%m-%d',
+    # fanfiction.net's own native date rendering, as scraped verbatim by
+    # WebToEpub (confirmed against tests/fixtures/Isolation - Bex-
+    # chan.epub's "Updated: 1/5/2020, 3:12:37 AM").
+    '%m/%d/%Y, %I:%M:%S %p',
+)
 _TZ_SUFFIX_RE = re.compile(r'([+-]\d{2}:\d{2}|Z)$')
 
 
@@ -121,6 +150,35 @@ def _parse_date(value):
     return None
 
 
+def _split_composite_label_value(value):
+    """
+    Some sites pack several 'Label: value' pairs into one line, separated
+    by ' - ' -- e.g. fanfiction.net's own (via fichub.net) "Rated: Fiction
+    M - Language: English - Genre: Romance/Mystery - Reviews: 3,176"
+    (confirmed against tests/fixtures/hunted.epub). Splits that into the
+    first label's own direct value plus a dict of the embedded sub-labels.
+
+    Only activates when at least one segment after splitting on ' - '
+    actually looks like its own 'Label: value' pair. If none do, the
+    value is returned completely untouched (empty sub_entries) -- this is
+    what keeps it from misfiring on something like a freeform-tags blob
+    that happens to contain ' - ' inside one tag's own text (e.g.
+    "Alternate Universe - No Powers, ..."), confirmed safe against
+    tests/fixtures/crimson_supernova.epub.
+    """
+    segments = [s.strip() for s in value.split(' - ') if s.strip()]
+    if not segments:
+        return value, {}
+    sub_entries = {}
+    for segment in segments[1:]:
+        m = _COMPOSITE_SEGMENT_RE.match(segment)
+        if m:
+            sub_entries[m.group(1).strip()] = m.group(2).strip()
+    if not sub_entries:
+        return value, {}
+    return segments[0], sub_entries
+
+
 def _map_titlepage(titlepage):
     result = {}
     if not titlepage:
@@ -129,7 +187,18 @@ def _map_titlepage(titlepage):
         result['storyUrl'] = titlepage['storyUrl']
     if titlepage.get('title'):
         result['title'] = titlepage['title']
-    for label, value in (titlepage.get('label_entries') or {}).items():
+
+    entries = dict(titlepage.get('label_entries') or {})
+    for label in list(entries):
+        head, sub_entries = _split_composite_label_value(entries[label])
+        if sub_entries:
+            entries[label] = head
+            for sub_label, sub_value in sub_entries.items():
+                # An explicit top-level "Label: value" line always wins
+                # over the same label discovered inside a composite blob.
+                entries.setdefault(sub_label, sub_value)
+
+    for label, value in entries.items():
         key = TITLEPAGE_LABEL_TO_KEY.get(label.strip().lower())
         if not key:
             continue
@@ -150,6 +219,16 @@ def _map_titlepage(titlepage):
                     result.setdefault(
                         'status', 'Completed' if n == total else 'In-Progress')
                 continue
+        if key == 'status':
+            # Sites/tools spell this differently (fichub's own
+            # fanfiction.net template uses lowercase "complete" --
+            # confirmed against tests/fixtures/hunted.epub), but it's
+            # only ever one of two states, so a two-way classification
+            # covers every variant without guessing at exact spellings
+            # for the "not complete" case.
+            result['status'] = ('Completed' if str(value).strip().lower().startswith('complete')
+                                 else 'In-Progress')
+            continue
         result[key] = _coerce_for_key(key, value)
     return result
 
@@ -178,10 +257,12 @@ def extract_fields(epub_stream):
         opf = extract_opf(zf)
         titlepage = extract_fff_titlepage(zf)
         ao3 = extract_ao3_frontmatter(zf)
+        ffnet_info = extract_ffnet_infopage(zf)
         fallback_url = extract_story_url_fallback(zf)
 
     titlepage_mapped = _map_titlepage(titlepage)
     ao3_fields = dict(ao3 or {})
+    ffnet_fields = dict(ffnet_info or {})
 
     opf_fields = {}
     if opf.get('title'):
@@ -196,7 +277,22 @@ def extract_fields(epub_stream):
         opf_fields['langcode'] = opf['language']
     if opf.get('description'):
         opf_fields['description'] = _strip_html(opf['description'])
-    if opf.get('dc_source'):
+    # An explicit url/uri-scheme identifier is preferred over dc:source --
+    # some tools (WebToEpub, confirmed against tests/fixtures/Isolation -
+    # Bex-chan.epub) write one <dc:source> per chapter *plus* one for the
+    # cover image, in which case the first one (what dc:source used to
+    # fall back to unconditionally) can easily be the cover image URL,
+    # not the story. Confirmed harmless for every other fixture: FFF's
+    # own EPUBs already carry the identical URL in both places.
+    identifier_url = None
+    for scheme in ('url', 'uri'):
+        candidate = (opf.get('identifiers') or {}).get(scheme)
+        if candidate and candidate.startswith(('http://', 'https://')):
+            identifier_url = candidate
+            break
+    if identifier_url:
+        opf_fields['storyUrl'] = identifier_url
+    elif opf.get('dc_source'):
         opf_fields['storyUrl'] = opf['dc_source']
     fanficfare_uid = opf.get('fanficfare_uid')
     if fanficfare_uid:
@@ -205,12 +301,13 @@ def extract_fields(epub_stream):
 
     fallback_fields = {'storyUrl': fallback_url} if fallback_url else {}
 
-    fields = _merge(opf_fields, titlepage_mapped, ao3_fields, fallback_fields)
+    fields = _merge(opf_fields, titlepage_mapped, ao3_fields, ffnet_fields, fallback_fields)
 
     source_tiers = {}
     for tier_name, tier_fields in (
         ('opf', opf_fields), ('fff_titlepage', titlepage_mapped),
-        ('ao3_frontmatter', ao3_fields), ('fallback_link_scan', fallback_fields),
+        ('ao3_frontmatter', ao3_fields), ('ffnet_infopage', ffnet_fields),
+        ('fallback_link_scan', fallback_fields),
     ):
         for key in tier_fields:
             if fields.get(key) == tier_fields[key]:
@@ -232,7 +329,7 @@ def _derive_fields(fields):
             site = m.group(1)
             fields['site'] = site
     if not fields.get('storyId') and story_url:
-        m = _WORKS_URL_RE.search(story_url)
+        m = _WORKS_URL_RE.search(story_url) or _FFNET_STORY_ID_RE.search(story_url)
         if m:
             fields['storyId'] = m.group(1)
 
@@ -257,8 +354,15 @@ def _derive_fields(fields):
             fields['authorUrl'] = [fields['authorUrl']]
 
         author_url_scalar = (fields.get('authorUrl') or [''])[0]
-        fields.setdefault('authorHTML', "<a class='authorlink' href='%s'>%s</a>" % (
-            author_url_scalar, author_name))
+        if author_url_scalar:
+            fields.setdefault('authorHTML', "<a class='authorlink' href='%s'>%s</a>" % (
+                author_url_scalar, author_name))
+        else:
+            # No recovered author URL (common for non-AO3 sites, e.g.
+            # fanfiction.net via fichub.net -- confirmed against
+            # tests/fixtures/hunted.epub) -- plain name rather than a
+            # broken <a href=''> link.
+            fields.setdefault('authorHTML', author_name)
 
     title = fields.get('title')
     if title and story_url:
