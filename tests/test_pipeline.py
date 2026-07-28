@@ -216,6 +216,78 @@ class NonAO3FallbackTest(unittest.TestCase):
         self.assertNotIn('site', fields)
 
 
+class TitlepageParagraphVariantTest(unittest.TestCase):
+    """A title page shaped like <p>Label: value</p> per line (no <b> tags,
+    filename 'titlepage.html' with no underscore) was previously invisible
+    to tier 2 entirely -- neither recognized as a title page nor scannable
+    for entries even if it had been. Regression fixture for that bug."""
+
+    EPUB_FIXTURE = TESTS_DIR / 'fixtures' / 'sigh_no_more.epub'
+
+    def test_recovers_fields_from_paragraph_style_titlepage(self):
+        fields, sources = extract_fields(str(self.EPUB_FIXTURE))
+
+        self.assertEqual(fields.get('fandoms'), ['The Pitt (TV)'])
+        self.assertEqual(fields.get('ships'), ['Jack Abbot/Michael "Robby" Robinavitch'])
+        self.assertEqual(fields.get('freeformtags'), ['PTSD', 'Hurt/Comfort'])
+        self.assertEqual(fields.get('ao3categories'), ['M/M'])
+        self.assertEqual(fields.get('rating'), 'Mature')
+        self.assertEqual(fields.get('status'), 'In-Progress')
+        self.assertEqual(fields.get('numWords'), 4066)
+        for key in ('fandoms', 'ships', 'freeformtags', 'ao3categories',
+                    'rating', 'status', 'numChapters', 'numWords'):
+            self.assertEqual(sources.get(key), 'fff_titlepage')
+
+    def test_chapters_slash_notation_recovers_numerator_and_status(self):
+        fields, _sources = extract_fields(str(self.EPUB_FIXTURE))
+
+        self.assertEqual(fields.get('numChapters'), 1)
+        self.assertEqual(fields.get('chapterslashtotal'), '1/1')
+
+    def test_dates_are_real_datetimes(self):
+        fields, _sources = extract_fields(str(self.EPUB_FIXTURE))
+
+        self.assertIsInstance(fields.get('datePublished'), datetime.datetime)
+        self.assertIsInstance(fields.get('dateUpdated'), datetime.datetime)
+
+
+class UnknownChapterTotalTest(unittest.TestCase):
+    """"Chapters: 41/?" (an ongoing fic whose final chapter count isn't
+    known yet) used to leave numChapters as the raw string '41/?', which
+    crashed Calibre outright (ValueError: invalid literal for int()) the
+    moment it reached an int-typed custom column via Mode 3. Regression
+    fixture for that crash."""
+
+    EPUB_FIXTURE = TESTS_DIR / 'fixtures' / 'crimson_supernova.epub'
+
+    def test_numerator_recovered_as_a_real_int(self):
+        fields, _sources = extract_fields(str(self.EPUB_FIXTURE))
+
+        self.assertEqual(fields.get('numChapters'), 41)
+        self.assertIsInstance(fields['numChapters'], int)
+        self.assertEqual(fields.get('chapterslashtotal'), '41/?')
+
+    def test_status_not_fabricated_from_unknown_total(self):
+        # Status still comes through fine here since this title page has
+        # its own explicit "Status:" line -- but it must come from that
+        # label, not be guessed from the (unknowable) n/? comparison.
+        fields, sources = extract_fields(str(self.EPUB_FIXTURE))
+
+        self.assertEqual(fields.get('status'), 'In-Progress')
+        self.assertEqual(sources.get('status'), 'fff_titlepage')
+
+    def test_no_non_numeric_string_survives_into_numChapters(self):
+        # Direct unit test of the general safety net in
+        # mapping.py::_finalize_numerics, independent of any one fixture.
+        from extract_epub_metadata.mapping import _finalize_numerics
+
+        fields = {'numChapters': '41/?', 'numWords': '1,234'}
+        _finalize_numerics(fields)
+
+        self.assertNotIn('numChapters', fields)
+        self.assertEqual(fields['numWords'], 1234)
+
+
 class ComputeStandardFieldsTest(unittest.TestCase):
     """Mode 2 (direct-to-Calibre-fields): compute_standard_fields() is pure
     and needs no live Calibre, unlike apply_standard_fields()/

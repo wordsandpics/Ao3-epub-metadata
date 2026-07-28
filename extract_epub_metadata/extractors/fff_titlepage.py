@@ -14,14 +14,30 @@ The <h3> link reliably gives the canonical story URL + title. The
 Metadata column format), so they're matched by label text -- best-effort,
 using FFF's default English labels. personal.ini label customization is
 out of scope for v1.
+
+Also handles a plainer variant seen in the wild (no `<b>` tags at all,
+one `<p>Label: value</p>` per line instead) -- confirmed against a real
+fixture (tests/fixtures/sigh_no_more.epub) where every single field past
+title/author/storyUrl was silently dropped because this shape wasn't
+recognized as a title page at all (filename has no underscore) and,
+even once detected, has zero `<b>` tags for the existing scan to find.
 """
+import re
+
 from ._epubxml import find_all, find_first, parse_opf, parse_xhtml, spine_item_paths, text_content
+
+# "Label: value" as the entire text of a <p>, label kept short so this
+# doesn't misfire on ordinary prose (e.g. a summary paragraph) that
+# happens to contain a colon.
+_PARA_LABEL_RE = re.compile(r'^([A-Za-z][\w \-/]{0,30}):\s*(.+)$', re.DOTALL)
 
 
 def _is_titlepage(root, path):
     body = find_first(root, 'body')
     cls = (body.get('class') or '') if body is not None else ''
-    return 'fff_titlepage' in cls.split() or 'title_page' in path.lower()
+    lowered = path.lower()
+    return ('fff_titlepage' in cls.split() or 'title_page' in lowered
+            or 'titlepage' in lowered)
 
 
 def extract_fff_titlepage(zf):
@@ -59,6 +75,19 @@ def extract_fff_titlepage(zf):
             value = (b.tail or '').strip()
             if value:
                 entries[label] = value
+
+        # Plainer <p>Label: value</p> variant -- only fills gaps, in case
+        # a page mixes both styles (unseen in practice, but cheap to be
+        # tolerant of).
+        for p in find_all(root, 'p'):
+            text = text_content(p).strip()
+            m = _PARA_LABEL_RE.match(text)
+            if not m:
+                continue
+            label, value = m.group(1).strip(), m.group(2).strip()
+            if label and value:
+                entries.setdefault(label, value)
+
         if entries:
             result['label_entries'] = entries
 

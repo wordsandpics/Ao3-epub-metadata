@@ -53,10 +53,19 @@ TITLEPAGE_LABEL_TO_KEY = {
     'packaged': 'dateCreated',
     'rating': 'rating',
     'warnings': 'warnings',
+    'archive warning': 'warnings',
     'chapters': 'numChapters',
     'words': 'numWords',
     'publisher': 'site',
     'summary': 'description',
+    # AO3's own raw (pre-composite) vocabulary -- some title-page variants
+    # use these separate labels instead of FFF's composite "Category"/
+    # "Genre" lines (confirmed against tests/fixtures/sigh_no_more.epub,
+    # which has none of category/genre but does have these).
+    'fandom': 'fandoms',
+    'fandoms': 'fandoms',
+    'additional tags': 'freeformtags',
+    'categories': 'ao3categories',
 }
 
 LIST_KEYS = {
@@ -70,6 +79,11 @@ LIST_KEYS = {
 
 _WORKS_URL_RE = re.compile(r'/works/(\d+)')
 _TAG_RE = re.compile(r'<[^>]+>')
+# Total is often "?" for an ongoing fic whose final chapter count isn't
+# known yet (confirmed against tests/fixtures/crimson supernova -
+# serenadewave.epub's "Chapters: 41/?") -- status can't be derived from
+# that, but the current chapter count is still perfectly recoverable.
+_CHAPTERS_SLASH_RE = re.compile(r'^\s*(\d+)\s*/\s*(\d+|\?)\s*$')
 # FFF's own default per-key date formats differ: dateCreated ("Packaged")
 # defaults to "%Y-%m-%d %H:%M:%S" (space-separated, with time), while
 # datePublished/dateUpdated default to date-only "%Y-%m-%d". Both are also
@@ -117,8 +131,26 @@ def _map_titlepage(titlepage):
         result['title'] = titlepage['title']
     for label, value in (titlepage.get('label_entries') or {}).items():
         key = TITLEPAGE_LABEL_TO_KEY.get(label.strip().lower())
-        if key:
-            result[key] = _coerce_for_key(key, value)
+        if not key:
+            continue
+        # "Chapters: 1/1" (some title-page variants use AO3's n/total
+        # notation instead of FFF's own plain current-chapter-count) --
+        # confirmed against tests/fixtures/sigh_no_more.epub. Recover
+        # numChapters from the numerator and derive status as a fallback,
+        # the same way ao3_frontmatter.py's _parse_stats() already does
+        # for AO3's own preface -- an explicit "Status:" line elsewhere on
+        # the page still wins via setdefault, regardless of scan order.
+        if key == 'numChapters':
+            m = _CHAPTERS_SLASH_RE.match(str(value))
+            if m:
+                n, total = m.group(1), m.group(2)
+                result['numChapters'] = n
+                result['chapterslashtotal'] = '%s/%s' % (n, total)
+                if total != '?':
+                    result.setdefault(
+                        'status', 'Completed' if n == total else 'In-Progress')
+                continue
+        result[key] = _coerce_for_key(key, value)
     return result
 
 
@@ -283,9 +315,22 @@ def _finalize_numerics(fields):
     # comma-formatting only at *read* time via commaGroups()) -- serialize.py
     # needs an actual int to emit the 'int' class dump_html_metadata() uses,
     # which is what load_html_metadata() checks for on the way back in.
+    # Same drop-rather-than-corrupt rule as _finalize_dates(): a title page
+    # can hand us something that never resolves to a clean int (e.g.
+    # "41/?" for an ongoing fic with an unknown final chapter count --
+    # _map_titlepage's slash handling already recovers the numerator for
+    # the common case, but this is the backstop for anything that still
+    # gets through). Leaving a raw non-numeric string in place crashed
+    # Calibre outright once it reached an int-typed custom column via
+    # Mode 3 (calibre/db/write.py's adapt_number does a bare int(value)).
     for key in ('numChapters', 'numWords'):
-        value = fields.get(key)
-        if isinstance(value, str):
-            digits = value.replace(',', '').strip()
-            if digits.isdigit():
-                fields[key] = int(digits)
+        if key not in fields:
+            continue
+        value = fields[key]
+        if isinstance(value, int):
+            continue
+        digits = str(value).replace(',', '').strip()
+        if digits.isdigit():
+            fields[key] = int(digits)
+        else:
+            del fields[key]
